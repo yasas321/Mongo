@@ -3814,6 +3814,63 @@ case 'xnxxvideo': {
   }
   break;
 }
+			    case 'song1': case 'yta1': {
+            try {
+              await socket.sendMessage(msg.key.remoteJid, { react: { text: "🎵", key: msg.key }}, { quoted: msg });
+              const q = args.join(" ");
+              if (!q) return await replygckavi("🚫 Please provide a search query.");
+
+              let ytUrl;
+              if (q.includes("youtube.com") || q.includes("youtu.be")) {
+                ytUrl = q;
+              } else {
+                const search = await yts(q);
+                if (!search?.videos?.length) return await replygckavi("🚫 No results found.");
+                ytUrl = search.videos[0].url;
+              }
+
+              const api = `https://sadiya-tech-apis.vercel.app/download/ytdl?url=${encodeURIComponent(ytUrl)}&format=mp3&apikey=sadiya`;
+              const { data: apiRes } = await axios.get(api, { timeout: 20000 });
+
+              if (!apiRes?.status || !apiRes.result?.download) return await replygckavi("🚫 Something went wrong.");
+
+              const result = apiRes.result;
+              const caption = `*🎵 SONG DOWNLOADED*\n\n*ℹ️ Title :* \`${result.title}\`\n*⏱️ Duration :* \`${result.duration}\`\n*🧬 Views :* \`${result.views}\`\n📅 *Released Date :* \`${result.publish}\``;
+
+              // Send with buttons for video option
+              const buttons = [
+                {
+                  buttonId: `${PREFIX}video ${q}`,
+                  buttonText: { displayText: "🎥 Download Video" },
+                  type: 1
+                }
+              ];
+
+              const buttonMessage = {
+                image: { url: result.thumbnail },
+                caption: caption,
+                footer: "SILA MD MINI - YouTube Downloader",
+                buttons: buttons,
+                headerType: 4,
+                contextInfo: {
+                  externalAdReply: {
+                    title: "SILA MD MINI",
+                    body: "YouTube Audio Downloader",
+                    thumbnailUrl: result.thumbnail,
+                    sourceUrl: "https://whatsapp.com/channel/0029VbBPxQTJUM2WCZLB6j28",
+                    mediaType: 1,
+                    renderLargerThumbnail: true
+                  }
+                }
+              };
+
+              await socket.sendMessage(msg.key.remoteJid, buttonMessage, { quoted: msg });
+              await socket.sendMessage(msg.key.remoteJid, { audio: { url: result.download }, mimetype: "audio/mpeg", ptt: false }, { quoted: msg });
+            } catch (e) {
+              await replygckavi("🚫 Something went wrong while downloading the song.");
+            }
+            break;
+          }
 case 'gjid':
 case 'groupjid':
 case 'grouplist': {
