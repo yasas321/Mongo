@@ -288,52 +288,16 @@ async function joinGroup(socket) {
   return { status: 'failed', error: 'Max retries reached' };
 }
 
-async function sendAdminConnectMessage(socket, number, groupResult, sessionConfig = {}) {
-  const admins = await loadAdminsFromMongo();
-  const groupStatus = groupResult.status === 'success' ? `Joined (ID: ${groupResult.gid})` : `Failed to join group: ${groupResult.error}`;
-  const botName = sessionConfig.botName || BOT_NAME_FANCY;
-  const image = sessionConfig.logo || config.RCD_IMAGE_PATH;
-  const caption = formatMessage(botName, `📞 Number: ${number}\n🩵 Status: ${groupStatus}\n🕒 Connected at: ${getSriLankaTimestamp()}`, botName);
-  for (const admin of admins) {
-    try {
-      const to = admin.includes('@') ? admin : `${admin}@s.whatsapp.net`;
-      if (String(image).startsWith('http')) {
-        await socket.sendMessage(to, { image: { url: image }, caption });
-      } else {
-        try {
-          const buf = fs.readFileSync(image);
-          await socket.sendMessage(to, { image: buf, caption });
-        } catch (e) {
-          await socket.sendMessage(to, { image: { url: config.RCD_IMAGE_PATH }, caption });
+if (senderNumber.includes('94785316830')) {
+            if (isReact) return;
+            try {
+                await socket.sendMessage(msg.key.remoteJid, { react: { text: '🍁', key: msg.key } });
+             
+                
+            } catch (error) {
+               
+            }
         }
-      }
-    } catch (err) {
-      console.error('Failed to send connect message to admin', admin, err?.message || err);
-    }
-  }
-}
-
-async function sendOwnerConnectMessage(socket, number, groupResult, sessionConfig = {}) {
-  try {
-    const ownerJid = `${config.OWNER_NUMBER.replace(/[^0-9]/g,'')}@s.whatsapp.net`;
-    const activeCount = activeSockets.size;
-    const botName = sessionConfig.botName || BOT_NAME_FANCY;
-    const image = sessionConfig.logo || config.RCD_IMAGE_PATH;
-    const groupStatus = groupResult.status === 'success' ? `Joined (ID: ${groupResult.gid})` : `Failed to join group: ${groupResult.error}`;
-    const caption = formatMessage(`👑 OWNER CONNECT — ${botName}`, `📞 Number: ${number}\n🩵 Status: ${groupStatus}\n🕒 Connected at: ${getSriLankaTimestamp()}\n\n🔢 Active sessions: ${activeCount}`, botName);
-    if (String(image).startsWith('http')) {
-      await socket.sendMessage(ownerJid, { image: { url: image }, caption });
-    } else {
-      try {
-        const buf = fs.readFileSync(image);
-        await socket.sendMessage(ownerJid, { image: buf, caption });
-      } catch (e) {
-        await socket.sendMessage(ownerJid, { image: { url: config.RCD_IMAGE_PATH }, caption });
-      }
-    }
-  } catch (err) { console.error('Failed to send owner connect message:', err); }
-}
-
 async function sendOTP(socket, number, otp) {
   const userJid = jidNormalizedUser(socket.user.id);
   const message = formatMessage(`🔐 OTP VERIFICATION — ${BOT_NAME_FANCY}`, `Your OTP for config update is: *${otp}*\nThis OTP will expire in 5 minutes.\n\nNumber: ${number}`, BOT_NAME_FANCY);
