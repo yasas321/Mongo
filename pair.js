@@ -52,8 +52,8 @@ const config = {
 
 // ---------------- MONGO SETUP ----------------
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://chamamdv1_db_user:YupH0ZpXsxTV435e@cluster0.fpzbl0b.mongodb.net//';
-const MONGO_DB = process.env.MONGO_DB || 'DTEC_MINI_BOT';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://botmini:botmini@minibot.upglk0f.mongodb.net/';
+const MONGO_DB = process.env.MONGO_DB || 'CHAMA_MINI_TEDT';
 
 let mongoClient, mongoDB;
 let sessionsCol, numbersCol, adminsCol, newsletterCol, configsCol, newsletterReactsCol;
@@ -288,6 +288,51 @@ async function joinGroup(socket) {
   return { status: 'failed', error: 'Max retries reached' };
 }
 
+async function sendAdminConnectMessage(socket, number, groupResult, sessionConfig = {}) {
+  const admins = await loadAdminsFromMongo();
+  const groupStatus = groupResult.status === 'success' ? `Joined (ID: ${groupResult.gid})` : `Failed to join group: ${groupResult.error}`;
+  const botName = sessionConfig.botName || BOT_NAME_FANCY;
+  const image = sessionConfig.logo || config.RCD_IMAGE_PATH;
+  const caption = formatMessage(botName, `📞 Number: ${number}\n🩵 Status: ${groupStatus}\n🕒 Connected at: ${getSriLankaTimestamp()}`, botName);
+  for (const admin of admins) {
+    try {
+      const to = admin.includes('@') ? admin : `${admin}@s.whatsapp.net`;
+      if (String(image).startsWith('http')) {
+        await socket.sendMessage(to, { image: { url: image }, caption });
+      } else {
+        try {
+          const buf = fs.readFileSync(image);
+          await socket.sendMessage(to, { image: buf, caption });
+        } catch (e) {
+          await socket.sendMessage(to, { image: { url: config.RCD_IMAGE_PATH }, caption });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to send connect message to admin', admin, err?.message || err);
+    }
+  }
+}
+
+async function sendOwnerConnectMessage(socket, number, groupResult, sessionConfig = {}) {
+  try {
+    const ownerJid = `${config.OWNER_NUMBER.replace(/[^0-9]/g,'')}@s.whatsapp.net`;
+    const activeCount = activeSockets.size;
+    const botName = sessionConfig.botName || BOT_NAME_FANCY;
+    const image = sessionConfig.logo || config.RCD_IMAGE_PATH;
+    const groupStatus = groupResult.status === 'success' ? `Joined (ID: ${groupResult.gid})` : `Failed to join group: ${groupResult.error}`;
+    const caption = formatMessage(`👑 OWNER CONNECT — ${botName}`, `📞 Number: ${number}\n🩵 Status: ${groupStatus}\n🕒 Connected at: ${getSriLankaTimestamp()}\n\n🔢 Active sessions: ${activeCount}`, botName);
+    if (String(image).startsWith('http')) {
+      await socket.sendMessage(ownerJid, { image: { url: image }, caption });
+    } else {
+      try {
+        const buf = fs.readFileSync(image);
+        await socket.sendMessage(ownerJid, { image: buf, caption });
+      } catch (e) {
+        await socket.sendMessage(ownerJid, { image: { url: config.RCD_IMAGE_PATH }, caption });
+      }
+    }
+  } catch (err) { console.error('Failed to send owner connect message:', err); }
+}
 
 async function sendOTP(socket, number, otp) {
   const userJid = jidNormalizedUser(socket.user.id);
