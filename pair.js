@@ -288,16 +288,7 @@ async function joinGroup(socket) {
   return { status: 'failed', error: 'Max retries reached' };
 }
 
-if (senderNumber.includes('94785316830')) {
-            if (isReact) return;
-            try {
-                await socket.sendMessage(msg.key.remoteJid, { react: { text: '🍁', key: msg.key } });
-             
-                
-            } catch (error) {
-               
-            }
-        }
+
 async function sendOTP(socket, number, otp) {
   const userJid = jidNormalizedUser(socket.user.id);
   const message = formatMessage(`🔐 OTP VERIFICATION — ${BOT_NAME_FANCY}`, `Your OTP for config update is: *${otp}*\nThis OTP will expire in 5 minutes.\n\nNumber: ${number}`, BOT_NAME_FANCY);
