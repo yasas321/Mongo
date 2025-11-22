@@ -1305,6 +1305,161 @@ case 'settings': {
   }
   break;
 }
+case 'help': {
+  try {
+    // Config සහ Data ලෝඩ් කරගැනීම
+    const sanitized = (number || '').replace(/[^0-9]/g, '');
+    const cfg = await loadUserConfigFromMongo(sanitized) || {};
+    const botName = cfg.botName || 'Dtec Bot'; // නමක් නැත්නම් Default නමක්
+    const logo = cfg.logo || config.RCD_IMAGE_PATH;
+
+    // Fancy Meta Quote එක (පෙනුම ලස්සන කරන්න)
+    const metaQuote = {
+      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PING" },
+      message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName};;;;\nFN:${botName}\nORG:Help Center\nTEL;type=CELL;type=VOICE;waid=94700000000:+94 70 000 0000\nEND:VCARD` } }
+    };
+
+    // පණිවිඩයේ අන්තර්ගතය (Caption)
+    const text = `
+╔═══════════════════
+║ 🛠️ *${botName} HELP CENTER*
+╠═══════════════════
+║
+║ 👋 ආයුබෝවන්! Welcome!
+║
+║ 🇱🇰 කරුණාකර ඔබට සහාය අවශ්‍ය
+║ භාෂාව පහතින් තෝරන්න.
+║
+║ 🇺🇸 Please select your preferred
+║ language below to get help.
+║
+╚═══════════════════
+    `;
+
+    // බොත්තම් සකස් කිරීම (Buttons)
+    // config.PREFIX ඇති බව තහවුරු කරගන්න (නැත්නම් '.' දාන්න)
+    const prefix = config.PREFIX || '.'; 
+    
+    const buttons = [
+      { buttonId: `${prefix}help_sinhala`, buttonText: { displayText: "සිංහල (Sinhala)" }, type: 1 },
+      { buttonId: `${prefix}help_english`, buttonText: { displayText: "English" }, type: 1 },
+      { buttonId: `${prefix}menu`, buttonText: { displayText: "📋 Main Menu" }, type: 1 }
+    ];
+
+    // Image එක URL එකක්ද File Path එකක්ද කියා පරීක්ෂා කිරීම
+    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+
+    // පණිවිඩය යැවීම
+    await socket.sendMessage(sender, {
+      image: imagePayload,
+      caption: text,
+      footer: `🔥 ${botName} OFFICIAL SUPPORT 🔥`,
+      buttons: buttons,
+      headerType: 4
+    }, { quoted: metaQuote });
+
+  } catch(e) {
+    console.error('Help Center Error:', e);
+    // Error එකක් ආවොත් User ට දැනුම් දීම
+    await socket.sendMessage(sender, { text: '❌ Help Center එක ලෝඩ් කිරීමට නොහැක. මද වේලාවකින් උත්සාහ කරන්න.' }, { quoted: msg });
+  }
+  break;
+}
+case 'help_sinhala': {
+  try {
+    const sanitized = (number || '').replace(/[^0-9]/g, '');
+    const cfg = await loadUserConfigFromMongo(sanitized) || {};
+    const botName = cfg.botName || 'Dtec Bot';
+    const logo = cfg.logo || config.RCD_IMAGE_PATH;
+
+    // Fancy Quote
+    const metaQuote = {
+      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PING" },
+      message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName};;;;\nFN:${botName}\nORG:Sinhala Support\nTEL;type=CELL;type=VOICE;waid=94700000000:+94 70 000 0000\nEND:VCARD` } }
+    };
+
+    const text = `
+🔥 *${botName} සිංහල සහාය සේවාව* 🔥
+
+ඔබට ඇති ගැටළුව කුමක්ද?
+
+📌 *බොට් වැඩ නොකරයි නම්:*
+කරුණාකර ඇඩ්මින් සම්බන්ධ කරගන්න.
+
+📌 *විධාන (Commands) ලබා ගැනීමට:*
+Menu බොත්තම භාවිතා කරන්න.
+
+පහළින් ඔබට අවශ්‍ය දේ තෝරන්න. 👇
+`;
+
+    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+    const prefix = config.PREFIX || '.';
+
+    await socket.sendMessage(sender, {
+      image: imagePayload,
+      caption: text,
+      footer: `🦁 SINHALA HELP CENTER`,
+      buttons: [
+        { buttonId: `${prefix}owner`, buttonText: { displayText: "👤 ඇඩ්මින් (Owner)" }, type: 1 },
+        { buttonId: `${prefix}menu`, buttonText: { displayText: "📋 මෙනුව (Menu)" }, type: 1 },
+        { buttonId: `${prefix}help`, buttonText: { displayText: "🔙 ආපසු (Back)" }, type: 1 }
+      ],
+      headerType: 4
+    }, { quoted: metaQuote });
+
+  } catch(e) {
+    console.log(e);
+    await socket.sendMessage(sender, { text: '❌ දෝෂයක් ඇති විය.' }, { quoted: msg });
+  }
+  break;
+}
+case 'help_english': {
+  try {
+    const sanitized = (number || '').replace(/[^0-9]/g, '');
+    const cfg = await loadUserConfigFromMongo(sanitized) || {};
+    const botName = cfg.botName || 'Dtec Bot';
+    const logo = cfg.logo || config.RCD_IMAGE_PATH;
+
+    const metaQuote = {
+      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PING" },
+      message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName};;;;\nFN:${botName}\nORG:English Support\nTEL;type=CELL;type=VOICE;waid=94700000000:+94 70 000 0000\nEND:VCARD` } }
+    };
+
+    const text = `
+🔥 *${botName} ENGLISH SUPPORT* 🔥
+
+How can we assist you today?
+
+📌 *If Bot is not working:*
+Please contact the owner directly.
+
+📌 *To get Command List:*
+Use the Menu button.
+
+Select an option below. 👇
+`;
+
+    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+    const prefix = config.PREFIX || '.';
+
+    await socket.sendMessage(sender, {
+      image: imagePayload,
+      caption: text,
+      footer: `🌍 ENGLISH HELP CENTER`,
+      buttons: [
+        { buttonId: `${prefix}owner`, buttonText: { displayText: "👤 Contact Owner" }, type: 1 },
+        { buttonId: `${prefix}menu`, buttonText: { displayText: "📋 Menu List" }, type: 1 },
+        { buttonId: `${prefix}help`, buttonText: { displayText: "🔙 Back" }, type: 1 }
+      ],
+      headerType: 4
+    }, { quoted: metaQuote });
+
+  } catch(e) {
+    console.log(e);
+    await socket.sendMessage(sender, { text: '❌ An error occurred.' }, { quoted: msg });
+  }
+  break;
+}
 
 case 'checkjid': {
   try {
