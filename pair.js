@@ -23,7 +23,7 @@ const {
   jidNormalizedUser,
   downloadContentFromMessage,
   DisconnectReason
-} = require('baileys');
+} = require('neno-baileys');
 
 // ---------------- CONFIG ----------------
 
