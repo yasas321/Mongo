@@ -6,8 +6,6 @@ const { exec } = require('child_process');
 const router = express.Router();
 const pino = require('pino');
 const moment = require('moment-timezone');
-const Jimp = require('jimp');
-const crypto = require('crypto');
 const axios = require('axios');
 const FileType = require('file-type');
 const fetch = require('node-fetch');
@@ -25,7 +23,7 @@ const {
     DisconnectReason
 } = require('baileys');
 
-// ---------------- CONFIG ----------------
+// ---------------- CONFIGURATION ----------------
 
 const BOT_NAME_FANCY = '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
 
@@ -47,7 +45,7 @@ const config = {
     BOT_FOOTER: '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥'
 };
 
-// ---------------- MONGO SETUP ----------------
+// ---------------- MONGO DB CONNECTION ----------------
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://botmini:botmini@minibot.upglk0f.mongodb.net/';
 const MONGO_DB = process.env.MONGO_DB || 'DILI_MINI_TEDT';
@@ -78,7 +76,7 @@ async function initMongo() {
     console.log('✅ Mongo initialized and collections ready');
 }
 
-// ---------------- MONGO HELPERS ----------------
+// ---------------- MONGO HELPER FUNCTIONS ----------------
 
 async function saveCredsToMongo(number, creds, keys = null) {
     try {
@@ -95,7 +93,7 @@ async function loadCredsFromMongo(number) {
         const sanitized = number.replace(/[^0-9]/g, '');
         const doc = await sessionsCol.findOne({ number: sanitized });
         return doc || null;
-    } catch (e) { console.error('loadCreds error:', e); return null; }
+    } catch (e) { return null; }
 }
 
 async function removeSessionFromMongo(number) {
@@ -103,7 +101,7 @@ async function removeSessionFromMongo(number) {
         await initMongo();
         const sanitized = number.replace(/[^0-9]/g, '');
         await sessionsCol.deleteOne({ number: sanitized });
-    } catch (e) { console.error('removeSession error:', e); }
+    } catch (e) {}
 }
 
 async function addNumberToMongo(number) {
@@ -171,6 +169,20 @@ async function saveNewsletterReaction(jid, messageId, emoji, sessionNumber) {
     } catch (e) {}
 }
 
+async function addNewsletterToMongo(jid, emojis = []) {
+    try {
+        await initMongo();
+        await newsletterCol.updateOne({ jid }, { $set: { jid, emojis: Array.isArray(emojis) ? emojis : [], addedAt: new Date() } }, { upsert: true });
+    } catch (e) {}
+}
+
+async function removeNewsletterFromMongo(jid) {
+    try {
+        await initMongo();
+        await newsletterCol.deleteOne({ jid });
+    } catch (e) {}
+}
+
 async function loadAdminsFromMongo() {
     try {
         await initMongo();
@@ -179,7 +191,21 @@ async function loadAdminsFromMongo() {
     } catch (e) { return []; }
 }
 
-// ---------------- UTILS ----------------
+async function addAdminToMongo(jidOrNumber) {
+    try {
+        await initMongo();
+        await adminsCol.updateOne({ jid: jidOrNumber }, { $set: { jid: jidOrNumber } }, { upsert: true });
+    } catch (e) {}
+}
+
+async function removeAdminFromMongo(jidOrNumber) {
+    try {
+        await initMongo();
+        await adminsCol.deleteOne({ jid: jidOrNumber });
+    } catch (e) {}
+}
+
+// ---------------- UTILITIES ----------------
 
 function formatMessage(title, content, footer) {
     return `*${title}*\n\n${content}\n\n> *${footer}*`;
@@ -187,14 +213,14 @@ function formatMessage(title, content, footer) {
 
 function getSriLankaTimestamp() { return moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss'); }
 
-// ---------------- GLOBAL MAPS ----------------
+// ---------------- GLOBAL STORAGE ----------------
 const activeSockets = new Map();
 const socketCreationTime = new Map();
 global.interviewSessions = global.interviewSessions || new Map();
 
-// ---------------- CORE HANDLERS ----------------
+// ---------------- HANDLERS DEFINITIONS ----------------
 
-// 1. STATUS HANDLER
+// 1. Status Handler
 async function setupStatusHandlers(socket, sessionNumber) {
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const message = messages[0];
@@ -214,17 +240,27 @@ async function setupStatusHandlers(socket, sessionNumber) {
                 if (userConfig.AUTO_RECORDING) autoRecording = userConfig.AUTO_RECORDING;
             }
 
-            if (autoRecording === 'true') await socket.sendPresenceUpdate("recording", message.key.remoteJid);
-            if (autoViewStatus === 'true') await socket.readMessages([message.key]);
+            if (autoRecording === 'true') {
+                await socket.sendPresenceUpdate("recording", message.key.remoteJid);
+            }
+
+            if (autoViewStatus === 'true') {
+                await socket.readMessages([message.key]);
+            }
+
             if (autoLikeStatus === 'true') {
                 const randomEmoji = userEmojis[Math.floor(Math.random() * userEmojis.length)];
-                await socket.sendMessage(message.key.remoteJid, { react: { text: randomEmoji, key: message.key } }, { statusJidList: [message.key.participant] });
+                await socket.sendMessage(message.key.remoteJid, {
+                    react: { text: randomEmoji, key: message.key }
+                }, { statusJidList: [message.key.participant] });
             }
-        } catch (error) {}
+        } catch (error) {
+            console.error('Status Handler Error:', error);
+        }
     });
 }
 
-// 2. NEWSLETTER HANDLER
+// 2. Newsletter Handler
 async function setupNewsletterHandlers(socket, sessionNumber) {
     const rrPointers = new Map();
     socket.ev.on('messages.upsert', async ({ messages }) => {
@@ -236,45 +272,81 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
             const reactConfigs = await listNewsletterReactsFromMongo();
             const reactMap = new Map();
             for (const r of reactConfigs) reactMap.set(r.jid, r.emojis || []);
+
             const followedJids = followedDocs.map(d => d.jid);
             if (!followedJids.includes(jid) && !reactMap.has(jid)) return;
 
-            let emojis = reactMap.get(jid) || config.AUTO_LIKE_EMOJI;
+            let emojis = reactMap.get(jid) || null;
+            if ((!emojis || emojis.length === 0) && followedDocs.find(d => d.jid === jid)) {
+                emojis = (followedDocs.find(d => d.jid === jid).emojis || []);
+            }
+            if (!emojis || emojis.length === 0) emojis = config.AUTO_LIKE_EMOJI;
+
             let idx = rrPointers.get(jid) || 0;
             const emoji = emojis[idx % emojis.length];
             rrPointers.set(jid, (idx + 1) % emojis.length);
 
             const messageId = message.newsletterServerId || message.key.id;
-            if (messageId) {
-                if (typeof socket.newsletterReactMessage === 'function') await socket.newsletterReactMessage(jid, messageId.toString(), emoji);
-                else await socket.sendMessage(jid, { react: { text: emoji, key: message.key } });
-                await saveNewsletterReaction(jid, messageId.toString(), emoji, sessionNumber || null);
+            if (!messageId) return;
+
+            if (typeof socket.newsletterReactMessage === 'function') {
+                await socket.newsletterReactMessage(jid, messageId.toString(), emoji);
+            } else {
+                await socket.sendMessage(jid, { react: { text: emoji, key: message.key } });
             }
+            await saveNewsletterReaction(jid, messageId.toString(), emoji, sessionNumber || null);
         } catch (e) {}
     });
 }
 
-// 3. CALL REJECTION
+// 3. Call Rejection
 async function setupCallRejection(socket, sessionNumber) {
     socket.ev.on('call', async (calls) => {
+        try {
+            const sanitized = (sessionNumber || '').replace(/[^0-9]/g, '');
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            if (userConfig.ANTI_CALL !== 'on') return;
+
+            for (const call of calls) {
+                if (call.status !== 'offer') continue;
+                await socket.rejectCall(call.id, call.from);
+                await socket.sendMessage(call.from, { text: '*🔕 Auto call rejection enabled.*' });
+            }
+        } catch (err) {}
+    });
+}
+
+// 4. Auto Message Read
+async function setupAutoMessageRead(socket, sessionNumber) {
+    socket.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg || !msg.message) return;
         const sanitized = (sessionNumber || '').replace(/[^0-9]/g, '');
         const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-        if (userConfig.ANTI_CALL !== 'on') return;
-        for (const call of calls) {
-            if (call.status === 'offer') {
-                await socket.rejectCall(call.id, call.from);
-            }
+        if (userConfig.AUTO_READ_MESSAGE === 'all') {
+            try { await socket.readMessages([msg.key]); } catch (e) {}
         }
     });
 }
 
-// 4. AUTO RESTART & CLEANUP
+// 5. Message Revocation
+async function handleMessageRevocation(socket, number) {
+    socket.ev.on('messages.delete', async ({ keys }) => {
+        if (!keys || keys.length === 0) return;
+        const messageKey = keys[0];
+        const userJid = jidNormalizedUser(socket.user.id);
+        const message = formatMessage('🗑️ MESSAGE DELETED', `From: ${messageKey.remoteJid}\nTime: ${getSriLankaTimestamp()}`, BOT_NAME_FANCY);
+        try { await socket.sendMessage(userJid, { image: { url: config.RCD_IMAGE_PATH }, caption: message }); } catch (error) {}
+    });
+}
+
+// 6. Auto Restart
 function setupAutoRestart(socket, number) {
     socket.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+            const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.statusCode;
+            if (statusCode === 401 || (lastDisconnect?.reason === DisconnectReason?.loggedOut)) {
                 await deleteSessionAndCleanup(number, socket);
             } else {
                 await delay(5000);
@@ -292,14 +364,34 @@ async function deleteSessionAndCleanup(number, socketInstance) {
         try { if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath); } catch (e) {}
         activeSockets.delete(sanitized);
         try { await removeSessionFromMongo(sanitized); } catch (e) {}
+        try { await removeNumberFromMongo(sanitized); } catch (e) {}
     } catch (e) {}
 }
 
-// ---------------- MAIN COMMAND HANDLER ----------------
+// 7. Auto Typing/Recording
+function setupMessageHandlers(socket, sessionNumber) {
+    socket.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message) return;
+        try {
+            let autoTyping = config.AUTO_TYPING;
+            let autoRecording = config.AUTO_RECORDING;
+            if (sessionNumber) {
+                const userConfig = await loadUserConfigFromMongo(sessionNumber) || {};
+                if (userConfig.AUTO_TYPING !== undefined) autoTyping = userConfig.AUTO_TYPING;
+                if (userConfig.AUTO_RECORDING !== undefined) autoRecording = userConfig.AUTO_RECORDING;
+            }
+            if (autoTyping === 'true') await socket.sendPresenceUpdate('composing', msg.key.remoteJid);
+            if (autoRecording === 'true') await socket.sendPresenceUpdate('recording', msg.key.remoteJid);
+        } catch (error) {}
+    });
+}
+
+// ---------------- COMMAND HANDLER (WITH INTERVIEW LOGIC) ----------------
 
 function setupCommandHandlers(socket, number) {
 
-    // Internal Helper for Download
+    // Media Download Helper
     const downloadMedia = async (msg) => {
         try {
             const type = Object.keys(msg)[0];
@@ -313,10 +405,18 @@ function setupCommandHandlers(socket, number) {
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
         
-        // 🛑🛑 BOT SELF-REPLY BLOCKER 🛑🛑
+        // 🚨 CRITICAL CHECKS TO PREVENT LOOPS 🚨
         if (!msg.message) return;
-        if (msg.key.fromMe) return; // This prevents the bot from triggering itself
-        if (msg.key.remoteJid === 'status@broadcast' || msg.key.remoteJid === config.NEWSLETTER_JID) return;
+        if (msg.key.remoteJid === 'status@broadcast') return;
+        if (msg.key.remoteJid === config.NEWSLETTER_JID) return;
+        
+        // If message is from bot itself, IGNORE IT
+        if (msg.key.fromMe) {
+            // console.log("Ignoring self message");
+            return; 
+        }
+
+        console.log("📩 New Message Received from:", msg.key.remoteJid);
 
         const type = getContentType(msg.message);
         msg.message = (getContentType(msg.message) === 'ephemeralMessage') ? msg.message.ephemeralMessage.message : msg.message;
@@ -327,10 +427,11 @@ function setupCommandHandlers(socket, number) {
         const senderNumber = (nowsender || '').split('@')[0];
 
         // =================================================================
-        // 🛡️ DARK TECH ZONE - INTERVIEW LOGIC (INTERCEPTOR)
+        // 🛡️ INTERVIEW INTERCEPTOR (No Prefix Logic)
         // =================================================================
 
         if (global.interviewSessions.has(sender)) {
+            console.log("🛡️ Interview Session Active for User");
             const session = global.interviewSessions.get(sender);
             const dtQuestions = [
                 "👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)",
@@ -345,14 +446,14 @@ function setupCommandHandlers(socket, number) {
             const isText = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
             const isImage = msg.message?.imageMessage;
 
-            // Cancel Handler
+            // Cancel
             if (isText && (isText.toLowerCase() === 'cancel' || isText.toLowerCase() === 'stop')) {
                 global.interviewSessions.delete(sender);
                 await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' }, { quoted: msg });
                 return;
             }
 
-            // Step 1: Text Answers
+            // Step 1: Text
             if (session.step < totalTextQ) {
                 if (isText) {
                     await socket.sendPresenceUpdate('composing', sender);
@@ -361,10 +462,10 @@ function setupCommandHandlers(socket, number) {
 
                     if (session.step < totalTextQ) {
                         await delay(1000);
-                        await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}` }, { quoted: msg });
+                        await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}` });
                     } else {
                         await delay(1000);
-                        await socket.sendMessage(sender, { text: `📸 *Photo Request (1/2)*\n\nකරුණාකර ඔබගේ පැහැදිලි ඡායාරූපයක් එවන්න.\n(Please send a photo of yourself)` }, { quoted: msg });
+                        await socket.sendMessage(sender, { text: `📸 *Photo Request (1/2)*\n\nකරුණාකර ඔබගේ පැහැදිලි ඡායාරූපයක් එවන්න.\n(Please send a photo of yourself)` });
                     }
                 }
             } 
@@ -376,13 +477,13 @@ function setupCommandHandlers(socket, number) {
                     if (buffer) {
                         session.photos.push(buffer);
                         session.step += 1;
-                        await socket.sendMessage(sender, { text: `📸 *Photo Request (2/2)*\n\nදැන් ID එකේ හෝ ඔයාගේ Design එකක ෆොටෝ එකක් එවන්න.` }, { quoted: msg });
+                        await socket.sendMessage(sender, { text: `📸 *Photo Request (2/2)*\n\nදැන් ID එකේ හෝ ඔයාගේ Design එකක ෆොටෝ එකක් එවන්න.` });
                     }
                 } else {
                     await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' });
                 }
             }
-            // Step 3: Photo 2 & Report
+            // Step 3: Photo 2 + Report
             else if (session.step === totalTextQ + 1) {
                 if (isImage) {
                     await socket.sendMessage(sender, { react: { text: "🔄", key: msg.key } });
@@ -390,7 +491,6 @@ function setupCommandHandlers(socket, number) {
                     if (buffer) {
                         session.photos.push(buffer);
                         
-                        // Generate Report
                         const slTime = moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss');
                         const ans = session.answers;
                         const reportText = `
@@ -411,22 +511,20 @@ function setupCommandHandlers(socket, number) {
 📸 *Photos Attached Below* 👇`;
 
                         let botLogo = config.RCD_IMAGE_PATH;
-                        // Send to Admin
                         await socket.sendMessage(adminNumber, { image: { url: botLogo }, caption: reportText, mentions: [sender] });
                         await socket.sendMessage(adminNumber, { image: session.photos[0], caption: `👤 *User Photo*` });
                         await socket.sendMessage(adminNumber, { image: session.photos[1], caption: `🆔 *Proof/Work*` });
 
-                        // Confirm User
-                        await socket.sendMessage(sender, { text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර Admin වෙත යොමු කෙරුණා.\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` }, { quoted: msg });
-                        
+                        await socket.sendMessage(sender, { text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර Admin වෙත යොමු කෙරුණා.\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` });
                         global.interviewSessions.delete(sender);
                     }
                 } else {
                     await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' });
                 }
             }
-            return; // Stop processing other commands
+            return; // STOP PROCESSING FOR INTERVIEW USER
         }
+
         // =================================================================
 
         const body = (type === 'conversation') ? msg.message.conversation
@@ -444,13 +542,22 @@ function setupCommandHandlers(socket, number) {
 
         if (!command) return;
 
+        console.log("🔹 Command Detected:", command);
+
         try {
             const sanitized = (number || '').replace(/[^0-9]/g, '');
             const userConfig = await loadUserConfigFromMongo(sanitized) || {};
             const isOwner = config.OWNER_NUMBER.includes(senderNumber);
 
+            // Basic worktype check
+            if (!isOwner) {
+                const workType = userConfig.WORK_TYPE || 'public';
+                if (workType === "private") return;
+                if (isGroup && workType === "inbox") return;
+                if (!isGroup && workType === "groups") return;
+            }
+
             switch (command) {
-                
                 case 'apply':
                 case 'join':
                 case 'interview': {
@@ -494,24 +601,25 @@ function setupCommandHandlers(socket, number) {
 
 🛠️ *TOOLS*
 .apply (Interview)
-.sticker (Reply image)
-.img [query]
+.ping
+.alive
 
 > Powered by Yasas Dileepa
 `;
-                    await socket.sendMessage(sender, { image: {url: config.RCD_IMAGE_PATH}, caption: menuText }, { quoted: msg });
+                    let menuImg = String(config.RCD_IMAGE_PATH).startsWith('http') ? { url: config.RCD_IMAGE_PATH } : fs.readFileSync(config.RCD_IMAGE_PATH);
+                    await socket.sendMessage(sender, { image: menuImg, caption: menuText }, { quoted: msg });
                     break;
 
-                // Add other commands like tiktok, song, fb, etc. here...
+                // Add other commands (song, video, etc.) as needed...
             }
 
         } catch (err) {
-            console.error('Command Error:', err);
+            console.error('Command handler error:', err);
         }
     });
 }
 
-// ---------------- EMPIRE PAIR ----------------
+// ---------------- MAIN CONNECTION ----------------
 
 async function EmpirePair(number, res) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
@@ -540,12 +648,15 @@ async function EmpirePair(number, res) {
 
         socketCreationTime.set(sanitizedNumber, Date.now());
 
-        // CALL HANDLERS
+        // LOAD HANDLERS
         setupStatusHandlers(socket, sanitizedNumber);
         setupNewsletterHandlers(socket, sanitizedNumber);
         setupCallRejection(socket, sanitizedNumber);
         setupCommandHandlers(socket, sanitizedNumber);
         setupAutoRestart(socket, sanitizedNumber);
+        setupMessageHandlers(socket, sanitizedNumber);
+        setupAutoMessageRead(socket, sanitizedNumber);
+        handleMessageRevocation(socket, sanitizedNumber);
 
         if (!socket.authState.creds.registered) {
             let retries = config.MAX_RETRIES;
@@ -554,7 +665,7 @@ async function EmpirePair(number, res) {
                 try { await delay(1500); code = await socket.requestPairingCode(sanitizedNumber); break; }
                 catch (error) { retries--; await delay(2000); }
             }
-            if (!res.headersSent) res.send({ code });
+            if (res && !res.headersSent) res.send({ code });
         }
 
         socket.ev.on('creds.update', async () => {
@@ -572,11 +683,9 @@ async function EmpirePair(number, res) {
         socket.ev.on('connection.update', async (update) => {
             const { connection } = update;
             if (connection === 'open') {
+                console.log(`✅ Connected to ${sanitizedNumber}`);
                 activeSockets.set(sanitizedNumber, socket);
                 await addNumberToMongo(sanitizedNumber);
-                await delay(2000);
-                const userJid = jidNormalizedUser(socket.user.id);
-                await socket.sendMessage(userJid, { text: `✅ *Connected Successfully!*\n${config.BOT_NAME} is active.` });
             }
             if (connection === 'close') {
                 try { if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath); } catch (e) {}
@@ -587,11 +696,11 @@ async function EmpirePair(number, res) {
 
     } catch (error) {
         console.error('Pairing error:', error);
-        if (!res.headersSent) res.status(503).send({ error: 'Service Unavailable' });
+        if (res && !res.headersSent) res.status(503).send({ error: 'Service Unavailable' });
     }
 }
 
-// ---------------- ROUTES ----------------
+// ---------------- ENDPOINTS ----------------
 
 router.get('/', async (req, res) => {
     const { number } = req.query;
