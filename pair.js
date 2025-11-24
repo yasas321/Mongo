@@ -548,105 +548,148 @@ function setupCommandHandlers(socket, number) {
       const userConfig = await loadUserConfigFromMongo(sanitized) || {};
       
 // ========== ADD WORK TYPE RESTRICTIONS HERE ==========
-		// ==========================================
-// 🛡️ DARK TECH ZONE PRO INTERVIEW SYSTEM 🛡️
-// ==========================================
+// =============================================
+// 🛡️ DARK TECH ZONE - PRO INTERVIEW LOGIC v2
+// =============================================
 
-// 1. ප්‍රශ්න ලිස්ට් එක (Questions)
+// 1. අසන්නට අවශ්‍ය ප්‍රශ්න (Text Questions)
 const dtQuestions = [
     "👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)",
     "🎂 වයස කීයද? (Age)",
-    "🏡️ පදිංචිය කොහෙද? (City/Address)",
+    "🏡️ පදිංචිය කොහෙද? (Address/City)",
     "💻 ඔයාට පුළුවන් Tech/Coding දේවල් මොනවද?",
-    "📱 පාවිච්චි කරන Phone/PC මොනවද? (Device Model)",
-    "🤔 ඇයි Dark Tech Zone එකට එන්න කැමති? (Reason)"
+    "🤔 ඇයි Dark Tech Zone එකට එන්න කැමති?"
 ];
 
-// Admin Number (ඔයාගේ නම්බර් එක මෙතනට දෙන්න)
-const dtAdmin = config.OWNER_NUMBER + "@s.whatsapp.net"; 
+// Admin Number (ඔයාගේ නම්බර් එක මෙතනට දාන්න)
+const adminNumber = config.OWNER_NUMBER + "@s.whatsapp.net";
 
-// Session Database
-global.dtInterview = global.dtInterview || new Map();
+// Session Memory
+global.interviewSessions = global.interviewSessions || new Map();
+
+// Helper: Download Media
+const downloadMedia = async (message) => {
+    try {
+        const type = Object.keys(message)[0];
+        const stream = await socket.downloadContentFromMessage(message[type], type.replace('Message', ''));
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+        }
+        return buffer;
+    } catch (e) {
+        return null;
+    }
+};
 
 // --- [LOGIC START] ---
-const currentSession = global.dtInterview.get(sender);
+if (global.interviewSessions.has(sender)) {
+    const session = global.interviewSessions.get(sender);
+    const totalTextQ = dtQuestions.length;
 
-// User ඉන්ටවීව් එකක ඉන්නවා නම් + එයා Message එකක් එව්වා නම්
-if (currentSession) {
-    // 1. User රිප්ලයි කරපු මැසේජ් එකේ ID එක ගන්නවා
-    const quotedMsgId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
+    // Check 1: User Cancel කරනවාද?
+    const textBody = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+    if (textBody && (textBody.toLowerCase() === 'cancel' || textBody.toLowerCase() === 'stop')) {
+        global.interviewSessions.delete(sender);
+        await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' }, { quoted: msg });
+        return;
+    }
+
+    // Check 2: Reply එකක් දැම්මේ නැත්නම් ගණන් ගන්නේ නෑ (Group Safe)
+    const isReply = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage || msg.message?.imageMessage?.contextInfo?.quotedMessage;
     
-    // 2. ඒක අපි අන්තිමට යවපු ප්‍රශ්නෙ ID එකට සමානද බලනවා
-    if (quotedMsgId === currentSession.lastMsgId) {
+    if (isReply) {
+        // --- STEP 1: Text Answers (0 to 4) ---
+        if (session.step < totalTextQ) {
+            if (!textBody) return; // Text එකක් නෙවෙයි නම් ගණන් ගන්නේ නෑ
+
+            session.answers.push(textBody);
+            session.step += 1;
+
+            if (session.step < totalTextQ) {
+                // ඊළඟ Text ප්‍රශ්නය
+                await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}\n\n> 💡 Reply to this message` }, { quoted: msg });
+            } else {
+                // Text ඉවරයි. දැන් Photo 1 ඉල්ලනවා
+                await socket.sendMessage(sender, { text: `📸 *Photo Request (1/2)*\n\nකරුණාකර ඔබගේ පැහැදිලි ඡායාරූපයක් එවන්න.\n(Please send a clear photo of yourself)\n\n> 💡 Reply to this message with a PHOTO.` }, { quoted: msg });
+            }
         
-        const answer = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        // --- STEP 2: Photo 1 (Step 5) ---
+        } else if (session.step === totalTextQ) {
+            if (!msg.message?.imageMessage) {
+                return await socket.sendMessage(sender, { text: '⚠️ Please reply with a PHOTO (Image) only.' }, { quoted: msg });
+            }
+            // Download Photo 1
+            const buffer = await downloadMedia(msg.message);
+            if (buffer) {
+                session.photos.push(buffer);
+                session.step += 1;
+                // Ask for Photo 2
+                await socket.sendMessage(sender, { text: `📸 *Photo Request (2/2)*\n\nදැන් ඔබගේ ID එකේ හෝ ඔයා හදපු Design එකක ෆොටෝ එකක් එවන්න.\n(Send ID proof or Portfolio image)\n\n> 💡 Reply to this message with a PHOTO.` }, { quoted: msg });
+            }
 
-        // Cancel කරනවා නම්
-        if (answer.toLowerCase() === 'cancel' || answer.toLowerCase() === 'exit') {
-            global.dtInterview.delete(sender);
-            await socket.sendMessage(sender, { text: '❌ Interview Cancelled.' }, { quoted: msg });
-            return;
-        }
+        // --- STEP 3: Photo 2 (Step 6) - FINAL ---
+        } else if (session.step === totalTextQ + 1) {
+            if (!msg.message?.imageMessage) {
+                return await socket.sendMessage(sender, { text: '⚠️ Please reply with a PHOTO (Image) only.' }, { quoted: msg });
+            }
+            // Download Photo 2
+            const buffer = await downloadMedia(msg.message);
+            if (buffer) {
+                session.photos.push(buffer);
+                
+                // ✅ FINAL REPORT GENERATION
+                await socket.sendMessage(sender, { react: { text: "🔄", key: msg.key } });
 
-        // උත්තරේ ලිස්ට් එකට දාගන්නවා
-        currentSession.answers.push(answer);
-        currentSession.step += 1;
+                // Sri Lanka Time
+                const slTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Colombo" });
+                const applicantNumber = sender.split('@')[0];
+                const ans = session.answers;
 
-        // තව ප්‍රශ්න තියෙනවා නම් ඊළඟ එක අහනවා
-        if (currentSession.step < dtQuestions.length) {
-            const nextQ = `
-📝 *Question ${currentSession.step + 1}*
-
-${dtQuestions[currentSession.step]}
-
-_💡 Type your answer by replying to this message._
-`;
-            // ඊළඟ ප්‍රශ්නෙ යවනවා + ඒකේ ID එක අලුත් කරගන්නවා
-            const sentQ = await socket.sendMessage(sender, { text: nextQ }, { quoted: msg });
-            currentSession.lastMsgId = sentQ.key.id;
-
-        } else {
-            // ප්‍රශ්න ඉවරයි! Report එක හදනවා
-            await socket.sendMessage(sender, { react: { text: "✅", key: msg.key } });
-
-            const ans = currentSession.answers;
-            const report = `
+                const reportText = `
 ┏━━━━━━━━━━━━━━━━━━━┓
-┃ 🛡️ *NEW MEMBER REQUEST*
+┃ 🛡️ *NEW MEMBER APPLICATION*
 ┗━━━━━━━━━━━━━━━━━━━┛
 🚀 *Team:* Dark Tech Zone
 
-👤 *Applicant:* @${sender.split('@')[0]}
+👤 *Applicant Info:*
+📞 *Number:* +${applicantNumber}
+🕒 *Time:* ${slTime}
 
+📝 *Interview Answers:*
 1️⃣ *Name:* ${ans[0]}
 2️⃣ *Age:* ${ans[1]}
 3️⃣ *City:* ${ans[2]}
 4️⃣ *Skills:* ${ans[3]}
-5️⃣ *Device:* ${ans[4]}
-6️⃣ *Reason:* ${ans[5]}
+5️⃣ *Reason:* ${ans[4]}
 
-🕒 *Time:* ${new Date().toLocaleString()}
+📸 *Photos Attached Below* 👇
 `;
 
-            // Admin ට යවනවා
-            let botLogo = config.RCD_IMAGE_PATH; // Config එකේ ලෝගෝ එක
-            await socket.sendMessage(dtAdmin, { 
-                image: { url: botLogo },
-                caption: report,
-                mentions: [sender]
-            });
+                // 1. Send Text Report to Admin
+                let botLogo = config.RCD_IMAGE_PATH;
+                await socket.sendMessage(adminNumber, { 
+                    image: { url: botLogo },
+                    caption: reportText,
+                    mentions: [sender]
+                });
 
-            // User ට Confirm කරනවා
-            await socket.sendMessage(sender, { 
-                text: `✅ *Application Submitted!*\n\nඔබේ විස්තර Admin වෙත යොමු කෙරුණා. ස්තූතියි!\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` 
-            }, { quoted: msg });
+                // 2. Send Photo 1 to Admin
+                await socket.sendMessage(adminNumber, { image: session.photos[0], caption: `👤 *Applicant Photo* (+${applicantNumber})` });
 
-            // Session එක අයින් කරනවා
-            global.dtInterview.delete(sender);
+                // 3. Send Photo 2 to Admin
+                await socket.sendMessage(adminNumber, { image: session.photos[1], caption: `🆔 *Proof/Portfolio* (+${applicantNumber})` });
+
+                // 4. Send Confirmation to User
+                await socket.sendMessage(sender, { 
+                    text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර සහ ඡායාරූප Admin වෙත යොමු කෙරුණා. \n(Sent at: ${slTime})\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` 
+                }, { quoted: msg });
+
+                // Clear Session
+                global.interviewSessions.delete(sender);
+            }
         }
-        
-        // මේ මැසේජ් එක වෙන Command එකක් විදියට වැඩ කරන එක නවත්තනවා
-        return; 
+        return; // Stop other commands
     }
 }
 // --- [LOGIC END] ---
@@ -681,35 +724,30 @@ if (!isOwner) {
       switch (command) {
         // --- existing commands (deletemenumber, unfollow, newslist, admin commands etc.) ---
         // ... (keep existing other case handlers unchanged) ...
-   case 'join':
-case 'register':
-case 'apply': {
+ case 'apply':
+case 'join':
+case 'interview': {
     try {
-        // දැනටමත් ඉන්ටවීව් එකකද බලනවා
-        if (global.dtInterview.has(sender)) {
-            return await socket.sendMessage(sender, { text: '⚠️ You clearly have a pending interview. Please finish it first.' }, { quoted: msg });
+        if (global.interviewSessions.has(sender)) {
+            return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview! Reply to the last message.' }, { quoted: msg });
         }
 
-        // Config Load
         const sanitized = (number || '').replace(/[^0-9]/g, '');
         const cfg = await loadUserConfigFromMongo(sanitized) || {};
         const logo = cfg.logo || config.RCD_IMAGE_PATH;
 
-        // Session එක හදනවා
-        // step: කීවෙනි ප්‍රශ්නෙද
-        // answers: උත්තර එකතු කරන්න
-        // lastMsgId: බොට් යවන මැසේජ් එකේ ID එක (Reply එක check කරන්න)
-        global.dtInterview.set(sender, { step: 0, answers: [], lastMsgId: null });
-        const currentSession = global.dtInterview.get(sender);
+        // Session එක හදනවා (Photos array එකත් එක්ක)
+        global.interviewSessions.set(sender, { step: 0, answers: [], photos: [] });
 
         const welcome = `
 🛡️ *DARK TECH ZONE RECRUITMENT* 🛡️
 
 👋 ආයුබෝවන්!
-අපේ ටීම් එකට එකතු වෙන්න කැමතිද?
-පහත ප්‍රශ්න වලට *Reply* කරමින් උත්තර දෙන්න.
+අපේ Team එකට එකතු වෙන්න කැමතිද?
+අපි අසන ප්‍රශ්න වලට පිළිතුරු සපයන්න.
 
-🛑 *Cancel කිරීමට 'cancel' ලෙස එවන්න.*
+⚠️ *උත්තර දෙන විට බොට්ගේ මැසේජ් එකට Reply කරන්න.*
+(ප්‍රශ්න 5ක් සහ ෆොටෝ 2ක් අවශ්‍ය වේ)
 
 👇 *පළමු ප්‍රශ්නය:*
 ${dtQuestions[0]}
@@ -717,14 +755,10 @@ ${dtQuestions[0]}
         
         let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
         
-        // පලවෙනි මැසේජ් එක යවනවා
-        const sentMsg = await socket.sendMessage(sender, { 
+        await socket.sendMessage(sender, { 
             image: imagePayload,
             caption: welcome 
         }, { quoted: msg });
-
-        // වැදගත්ම දේ: යවපු මැසේජ් එකේ ID එක Session එකට දාගන්නවා
-        currentSession.lastMsgId = sentMsg.key.id;
 
     } catch (e) {
         console.error("Interview Error:", e);
