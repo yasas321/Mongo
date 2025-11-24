@@ -579,85 +579,58 @@ if (!isOwner) {
       switch (command) {
         // --- existing commands (deletemenumber, unfollow, newslist, admin commands etc.) ---
         // ... (keep existing other case handlers unchanged) ...
-          case 'ts': {
-    const axios = require('axios');
-
-    const q = msg.message?.conversation ||
-              msg.message?.extendedTextMessage?.text ||
-              msg.message?.imageMessage?.caption ||
-              msg.message?.videoMessage?.caption || '';
-
-    let query = q.replace(/^[.\/!]ts\s*/i, '').trim();
-
-    if (!query) {
-        return await socket.sendMessage(sender, {
-            text: '[❗] TikTok එකේ මොකද්ද බලන්න ඕනෙ කියපං! 🔍'
-        }, { quoted: msg });
-    }
-
-    // 🔹 Load bot name dynamically
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    let cfg = await loadUserConfigFromMongo(sanitized) || {};
-    let botName = cfg.botName || '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
-
-    // 🔹 Fake contact for quoting
-    const shonux = {
-        key: {
-            remoteJid: "status@broadcast",
-            participant: "0@s.whatsapp.net",
-            fromMe: false,
-            id: "META_AI_FAKE_ID_TS"
-        },
-        message: {
-            contactMessage: {
-                displayName: botName,
-                vcard: `BEGIN:VCARD
-VERSION:3.0
-N:${botName};;;;
-FN:${botName}
-ORG:Meta Platforms
-TEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002
-END:VCARD`
-            }
-        }
-    };
-
+        case 'tiktok':
+case 'tt': {
     try {
-        await socket.sendMessage(sender, { text: `🔎 Searching TikTok for: ${query}...` }, { quoted: shonux });
+        const axios = require('axios');
+        const q = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        let url = q.split(" ")[1];
 
-        const searchParams = new URLSearchParams({ keywords: query, count: '10', cursor: '0', HD: '1' });
-        const response = await axios.post("https://tikwm.com/api/feed/search", searchParams, {
-            headers: { 'Content-Type': "application/x-www-form-urlencoded; charset=UTF-8", 'Cookie': "current_language=en", 'User-Agent': "Mozilla/5.0" }
-        });
+        if (!url) return await socket.sendMessage(sender, { text: '❌ Please provide a TikTok URL.\nEx: .tt https://vm.tiktok.com/xyz' }, { quoted: msg });
 
-        const videos = response.data?.data?.videos;
-        if (!videos || videos.length === 0) {
-            return await socket.sendMessage(sender, { text: '⚠️ No videos found.' }, { quoted: shonux });
-        }
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        const cfg = await loadUserConfigFromMongo(sanitized) || {};
+        const botName = cfg.botName || '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
 
-        // Limit number of videos to send
-        const limit = 3; 
-        const results = videos.slice(0, limit);
+        await socket.sendMessage(sender, { react: { text: '🎵', key: msg.key } });
+        await socket.sendMessage(sender, { text: '⬇️ *Downloading TikTok Video...*' }, { quoted: msg });
 
-        // 🔹 Send videos one by one
-        for (let i = 0; i < results.length; i++) {
-            const v = results[i];
-            const videoUrl = v.play || v.download || null;
-            if (!videoUrl) continue;
+        // Reliable API
+        const { data } = await axios.get(`https://api.davidcyriltech.my.id/download/tiktok?url=${url}`);
 
-            await socket.sendMessage(sender, { text: `⏳ Downloading: ${v.title || 'No Title'}` }, { quoted: shonux });
+        if (!data.success) return await socket.sendMessage(sender, { text: '❌ Failed to fetch video!' }, { quoted: msg });
 
-            await socket.sendMessage(sender, {
-                video: { url: videoUrl },
-                caption: `🎵 ${botName} TikTok Downloader\n\nTitle: ${v.title || 'No Title'}\nAuthor: ${v.author?.nickname || 'Unknown'}`
-            }, { quoted: shonux });
-        }
+        const vid = data.result;
+        const caption = `
+🎵 *${botName} TIKTOK DOWNLOADER*
 
-    } catch (err) {
-        console.error('TikTok Search Error:', err);
-        await socket.sendMessage(sender, { text: `❌ Error: ${err.message}` }, { quoted: shonux });
+👤 *Author:* ${vid.author_name}
+📝 *Title:* ${vid.title || 'No Title'}
+👀 *Views:* ${vid.views}
+👍 *Likes:* ${vid.likes}
+
+> 🐦‍🔥 Powered by D-TEC
+`;
+
+        await socket.sendMessage(sender, {
+            video: { url: vid.video_no_watermark },
+            caption: caption,
+            contextInfo: {
+                externalAdReply: {
+                    title: vid.author_name,
+                    body: "TikTok Downloader",
+                    thumbnailUrl: vid.author_image,
+                    sourceUrl: url,
+                    mediaType: 1,
+                    renderLargerThumbnail: true
+                }
+            }
+        }, { quoted: msg });
+
+    } catch (e) {
+        console.error(e);
+        await socket.sendMessage(sender, { text: '❌ Error downloading TikTok.' }, { quoted: msg });
     }
-
     break;
 }
 case 'setting': {
@@ -2458,322 +2431,118 @@ case 'bots': {
   }
   break;
 }
-case 'song': {
-    const yts = require('yt-search');
-    const axios = require('axios');
-
-    // --- Helper Functions ---
-    function extractYouTubeId(url) {
-        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-        const match = url.match(regex);
-        return match ? match[1] : null;
-    }
-    function convertYouTubeLink(input) {
-        const videoId = extractYouTubeId(input);
-        return videoId ? `https://www.youtube.com/watch?v=${videoId}` : input;
-    }
-    // ------------------------
-
-    const q = msg.message?.conversation || 
-              msg.message?.extendedTextMessage?.text || 
-              msg.message?.imageMessage?.caption || 
-              msg.message?.videoMessage?.caption || '';
-
-    if (!q || q.trim() === '') {
-        await socket.sendMessage(sender, { text: '*`Please provide a Song Name or Url`*' });
-        break;
-    }
-
-    // React searching
-    await socket.sendMessage(sender, { react: { text: '🔎', key: msg.key } });
-
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    let cfg = await loadUserConfigFromMongo(sanitized) || {};
-    let botName = cfg.botName || '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
-
+case 'song':
+case 'play':
+case 'video': {
     try {
-        // 1. Find Video URL
-        let videoUrl = null;
-        let videoInfo = null;
+        const yts = require('yt-search');
+        const axios = require('axios');
 
-        const maybeLink = convertYouTubeLink(q.trim());
-        if (extractYouTubeId(q.trim())) {
-            videoUrl = maybeLink;
-            // Get basic info via yts just for details
-            const search = await yts({ videoId: extractYouTubeId(videoUrl) });
-            videoInfo = search;
-        } else {
-            const search = await yts(q.trim());
-            videoInfo = (search?.videos || [])[0];
-            if (!videoInfo) {
-                await socket.sendMessage(sender, { text: '*`No results found`*' });
-                break;
+        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+        const query = text.split(" ").slice(1).join(" ");
+
+        if (!query) return await socket.sendMessage(sender, { text: '🔎 Please provide a song name or link!' }, { quoted: msg });
+
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        const cfg = await loadUserConfigFromMongo(sanitized) || {};
+        const botName = cfg.botName || '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
+
+        await socket.sendMessage(sender, { react: { text: '🎧', key: msg.key } });
+
+        // Search YouTube
+        const search = await yts(query);
+        const vid = search.videos[0];
+
+        if (!vid) return await socket.sendMessage(sender, { text: '❌ No results found!' }, { quoted: msg });
+
+        const msgBody = `
+🎧 *${botName} MEDIA DOWNLOADER*
+
+📌 *Title:* ${vid.title}
+⏱️ *Duration:* ${vid.timestamp}
+📅 *Uploaded:* ${vid.ago}
+👁️ *Views:* ${vid.views}
+
+👇 *Select format to download:*
+`;
+        
+        // Send Button Message with Thumbnail
+        await socket.sendMessage(sender, {
+            image: { url: vid.thumbnail },
+            caption: msgBody,
+            footer: "🔥 Select Option 🔥",
+            buttons: [
+                { buttonId: `.ytmp3 ${vid.url}`, buttonText: { displayText: "🎵 AUDIO (MP3)" }, type: 1 },
+                { buttonId: `.ytmp4 ${vid.url}`, buttonText: { displayText: "🎬 VIDEO (MP4)" }, type: 1 },
+                { buttonId: `.ytkdoc ${vid.url}`, buttonText: { displayText: "📁 DOCUMENT" }, type: 1 }
+            ],
+            headerType: 4,
+            contextInfo: {
+                externalAdReply: {
+                    title: vid.title,
+                    body: vid.author.name,
+                    thumbnailUrl: vid.thumbnail,
+                    sourceUrl: vid.url,
+                    mediaType: 1,
+                    renderLargerThumbnail: true
+                }
             }
-            videoUrl = videoInfo.url;
-        }
-
-        // 2. Fetch Download Link using New API
-        const apiUrl = `https://api.davidcyriltech.my.id/download/ytmp3?url=${encodeURIComponent(videoUrl)}`;
-        const { data } = await axios.get(apiUrl);
-
-        if (!data || !data.result || !data.result.download_url) {
-            await socket.sendMessage(sender, { text: '*`Failed to fetch download link from API`*' });
-            break;
-        }
-
-        const downloadUrl = data.result.download_url;
-        const title = data.result.title || videoInfo.title;
-        const thumb = data.result.image || videoInfo.thumbnail;
-
-        // 3. Create Menu
-        const caption = `🎵 *${botName} AUDIO DOWNLOADER* 🎵
-
-📌 *Title:* ${title}
-🔗 *Url:* ${videoUrl}
-
-*Reply with a number:*
-1️⃣. 📄 Document (MP3)
-2️⃣. 🎧 Audio (MP3)
-3️⃣. 🎙 Voice Note (PTT)
-
-_Reply within 60 seconds_`;
-
-        // Fake channel card for style
-        const contextInfo = {
-            externalAdReply: {
-                title: title,
-                body: botName,
-                mediaType: 1,
-                thumbnailUrl: thumb,
-                sourceUrl: videoUrl,
-                renderLargerThumbnail: true
-            }
-        };
-
-        const resMsg = await socket.sendMessage(sender, { 
-            image: { url: thumb }, 
-            caption: caption,
-            contextInfo: contextInfo
         }, { quoted: msg });
 
-        // 4. Handle Reply
-        const messageId = resMsg.key.id;
-        
-        const handler = async (update) => {
-            try {
-                const replyMsg = update.messages[0];
-                if (!replyMsg.message) return;
-                
-                const replyText = replyMsg.message.conversation || replyMsg.message.extendedTextMessage?.text;
-                const isReplyToBot = replyMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageId;
-                const isSameUser = replyMsg.key.remoteJid === sender;
-
-                if (isReplyToBot && isSameUser && replyText) {
-                    const option = replyText.trim()[0]; // Get first character
-
-                    // React to selection
-                    await socket.sendMessage(sender, { react: { text: '⬇️', key: replyMsg.key } });
-
-                    switch (option) {
-                        case '1': // Document
-                            await socket.sendMessage(sender, { 
-                                document: { url: downloadUrl }, 
-                                mimetype: 'audio/mpeg', 
-                                fileName: `${title}.mp3`,
-                                caption: `*${title}*\n> ${botName}`
-                            }, { quoted: replyMsg });
-                            break;
-                        case '2': // Audio
-                            await socket.sendMessage(sender, { 
-                                audio: { url: downloadUrl }, 
-                                mimetype: 'audio/mpeg',
-                                caption: `*${title}*`
-                            }, { quoted: replyMsg });
-                            break;
-                        case '3': // PTT
-                            await socket.sendMessage(sender, { 
-                                audio: { url: downloadUrl }, 
-                                mimetype: 'audio/mpeg', 
-                                ptt: true 
-                            }, { quoted: replyMsg });
-                            break;
-                        default:
-                            await socket.sendMessage(sender, { text: '*Invalid option!*' }, { quoted: replyMsg });
-                    }
-                    // Stop listening after action
-                    socket.ev.off('messages.upsert', handler);
-                }
-            } catch (e) {
-                console.error('Song reply handler error:', e);
-            }
-        };
-
-        // Register listener
-        socket.ev.on('messages.upsert', handler);
-
-        // Remove listener after 60 seconds to save memory
-        setTimeout(() => {
-            socket.ev.off('messages.upsert', handler);
-        }, 60000);
-
     } catch (e) {
-        console.error('Song command error:', e);
-        await socket.sendMessage(sender, { text: '*`An error occurred!`*' });
+        console.error(e);
+        await socket.sendMessage(sender, { text: '❌ Error searching.' }, { quoted: msg });
     }
     break;
 }
-			  case 'video': {
-    const yts = require('yt-search');
-    const axios = require('axios');
 
-    // --- Helper Functions ---
-    function extractYouTubeId(url) {
-        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-        const match = url.match(regex);
-        return match ? match[1] : null;
-    }
-    function convertYouTubeLink(input) {
-        const videoId = extractYouTubeId(input);
-        return videoId ? `https://www.youtube.com/watch?v=${videoId}` : input;
-    }
-    // ------------------------
+// ---- Sub Commands for Download (Internal Use) ----
 
-    const q = msg.message?.conversation || 
-              msg.message?.extendedTextMessage?.text || 
-              msg.message?.imageMessage?.caption || 
-              msg.message?.videoMessage?.caption || '';
-
-    if (!q || q.trim() === '') {
-        await socket.sendMessage(sender, { text: '*`Please provide a Video Name or Url`*' });
-        break;
-    }
-
-    // React searching
-    await socket.sendMessage(sender, { react: { text: '🔎', key: msg.key } });
-
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    let cfg = await loadUserConfigFromMongo(sanitized) || {};
-    let botName = cfg.botName || '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
-
+case 'ytmp3':
+case 'ytmp4':
+case 'ytkdoc': {
     try {
-        // 1. Find Video URL
-        let videoUrl = null;
-        let videoInfo = null;
+        const axios = require('axios');
+        const url = args[0];
+        if (!url) return;
 
-        const maybeLink = convertYouTubeLink(q.trim());
-        if (extractYouTubeId(q.trim())) {
-            videoUrl = maybeLink;
-            const search = await yts({ videoId: extractYouTubeId(videoUrl) });
-            videoInfo = search;
-        } else {
-            const search = await yts(q.trim());
-            videoInfo = (search?.videos || [])[0];
-            if (!videoInfo) {
-                await socket.sendMessage(sender, { text: '*`No results found`*' });
-                break;
-            }
-            videoUrl = videoInfo.url;
-        }
+        const isAudio = command === 'ytmp3';
+        const isDoc = command === 'ytkdoc';
 
-        // 2. Fetch Download Link using New API (Video Endpoint)
-        const apiUrl = `https://api.davidcyriltech.my.id/download/ytmp4?url=${encodeURIComponent(videoUrl)}`;
+        await socket.sendMessage(sender, { text: `⬇️ *Downloading ${isAudio ? 'Audio' : 'Video'}... Please wait!*` }, { quoted: msg });
+
+        // Using reliable generic API
+        const apiUrl = `https://api.davidcyriltech.my.id/download/${isAudio || isDoc ? 'ytmp3' : 'ytmp4'}?url=${url}`;
         const { data } = await axios.get(apiUrl);
 
-        if (!data || !data.result || !data.result.download_url) {
-            await socket.sendMessage(sender, { text: '*`Failed to fetch video link from API`*' });
-            break;
+        if (!data.success) return await socket.sendMessage(sender, { text: '❌ Download failed.' }, { quoted: msg });
+
+        const dlUrl = data.result.download_url;
+        const title = data.result.title;
+
+        if (isAudio) {
+            await socket.sendMessage(sender, { 
+                audio: { url: dlUrl }, 
+                mimetype: 'audio/mpeg', 
+                ptt: false 
+            }, { quoted: msg });
+        } else if (isDoc) {
+            await socket.sendMessage(sender, { 
+                document: { url: dlUrl }, 
+                mimetype: 'audio/mpeg', 
+                fileName: `${title}.mp3` 
+            }, { quoted: msg });
+        } else {
+            await socket.sendMessage(sender, { 
+                video: { url: dlUrl }, 
+                caption: `🎬 *${title}*\n> Powered by D-TEC`,
+                mimetype: 'video/mp4' 
+            }, { quoted: msg });
         }
 
-        const downloadUrl = data.result.download_url;
-        const title = data.result.title || videoInfo.title;
-        const thumb = data.result.image || videoInfo.thumbnail;
-
-        // 3. Create Menu
-        const caption = `🎬 *${botName} VIDEO DOWNLOADER* 🎬
-
-📌 *Title:* ${title}
-🔗 *Url:* ${videoUrl}
-
-*Reply with a number:*
-1️⃣. 📽️ Video (Normal)
-2️⃣. 📁 Document (MP4)
-
-_Reply within 60 seconds_`;
-
-        // Fake channel card for style
-        const contextInfo = {
-            externalAdReply: {
-                title: title,
-                body: botName,
-                mediaType: 2, // Video preview type
-                thumbnailUrl: thumb,
-                sourceUrl: videoUrl,
-                renderLargerThumbnail: true
-            }
-        };
-
-        const resMsg = await socket.sendMessage(sender, { 
-            image: { url: thumb }, 
-            caption: caption,
-            contextInfo: contextInfo
-        }, { quoted: msg });
-
-        // 4. Handle Reply
-        const messageId = resMsg.key.id;
-        
-        const handler = async (update) => {
-            try {
-                const replyMsg = update.messages[0];
-                if (!replyMsg.message) return;
-                
-                const replyText = replyMsg.message.conversation || replyMsg.message.extendedTextMessage?.text;
-                const isReplyToBot = replyMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageId;
-                const isSameUser = replyMsg.key.remoteJid === sender;
-
-                if (isReplyToBot && isSameUser && replyText) {
-                    const option = replyText.trim()[0]; // Get first character
-
-                    // React to selection
-                    await socket.sendMessage(sender, { react: { text: '⬇️', key: replyMsg.key } });
-
-                    switch (option) {
-                        case '1': // Normal Video
-                            await socket.sendMessage(sender, { 
-                                video: { url: downloadUrl }, 
-                                mimetype: 'video/mp4',
-                                caption: `*${title}*\n> ${botName}`
-                            }, { quoted: replyMsg });
-                            break;
-                        case '2': // Document Video
-                            await socket.sendMessage(sender, { 
-                                document: { url: downloadUrl }, 
-                                mimetype: 'video/mp4',
-                                fileName: `${title}.mp4`,
-                                caption: `*${title}*\n> ${botName}`
-                            }, { quoted: replyMsg });
-                            break;
-                        default:
-                            await socket.sendMessage(sender, { text: '*Invalid option!*' }, { quoted: replyMsg });
-                    }
-                    // Stop listening after action
-                    socket.ev.off('messages.upsert', handler);
-                }
-            } catch (e) {
-                console.error('Video reply handler error:', e);
-            }
-        };
-
-        // Register listener
-        socket.ev.on('messages.upsert', handler);
-
-        // Remove listener after 60 seconds
-        setTimeout(() => {
-            socket.ev.off('messages.upsert', handler);
-        }, 60000);
-
     } catch (e) {
-        console.error('Video command error:', e);
-        await socket.sendMessage(sender, { text: '*`An error occurred!`*' });
+        console.error(e);
+        await socket.sendMessage(sender, { text: '❌ Download Error.' }, { quoted: msg });
     }
     break;
 }
@@ -3038,7 +2807,117 @@ END:VCARD`
   }
   break;
 }
+case 'menu2':
+case 'help2':
+case 'list2': {
+    try {
+        await socket.sendMessage(sender, { react: { text: "📂", key: msg.key } });
 
+        // Load Config
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        const cfg = await loadUserConfigFromMongo(sanitized) || {};
+        const botName = cfg.botName || '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
+        const logo = cfg.logo || config.RCD_IMAGE_PATH;
+        const prefix = config.PREFIX || '.';
+
+        // Time Calculation
+        const uptime = process.uptime();
+        const hours = Math.floor(uptime / 3600);
+        const minutes = Math.floor((uptime % 3600) / 60);
+
+        // Fancy Contact Card (AdReply)
+        const fkontak = {
+            key: { fromMe: false, participant: `0@s.whatsapp.net`, remoteJid: "status@broadcast" },
+            message: {
+                contactMessage: {
+                    displayName: botName,
+                    vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;${botName};;;\nFN:${botName}\nTEL;type=CELL;type=VOICE;waid=${sanitized}:${sanitized}\nEND:VCARD`
+                }
+            }
+        };
+
+        const menuText = `
+┏━━━━━━━━━━━━━━━━━━━━━┓
+┃ 🤖 *${botName} MAIN MENU* ┗━━━━━━━━━━━━━━━━━━━━━┛
+👋 *Hi, ${msg.pushName}*
+
+╭───〔 *BOT INFO* 〕
+│ 👤 *Owner:* ${config.OWNER_NAME || 'YASAS'}
+│ ⏳ *Uptime:* ${hours}h ${minutes}m
+│ 🚀 *Version:* 2.0.0 (Pro)
+│ 📅 *Date:* ${new Date().toLocaleDateString()}
+╰─────────────────────
+
+📥 *DOWNLOAD COMMANDS*
+│ 🎵 ${prefix}song [name/url]
+│ 📽️ ${prefix}video [name/url]
+│ 📱 ${prefix}tiktok [url]
+│ 📘 ${prefix}fb [url]
+│ 📸 ${prefix}ig [url]
+│ 📦 ${prefix}apk [app name]
+│ ☁️ ${prefix}gdrive [url]
+│ 📂 ${prefix}mediafire [url]
+
+🤖 *AI & CHAT*
+│ 🧠 ${prefix}ai [query]
+│ 🎨 ${prefix}aiimg [prompt]
+│ 🗣️ ${prefix}chat [msg]
+
+🔧 *TOOLS & UTILS*
+│ 🔍 ${prefix}google [query]
+│ 🖼️ ${prefix}img [query]
+│ 🔗 ${prefix}short [link]
+│ 🔐 ${prefix}pass [length]
+│ 🏷️ ${prefix}tagall [msg]
+│ ⚙️ ${prefix}system
+│ ⚡ ${prefix}ping
+│ 🦠 ${prefix}alive
+
+👥 *GROUP & ADMIN*
+│ ➕ ${prefix}addadmin
+│ ➖ ${prefix}deladmin
+│ 📝 ${prefix}grouplist
+│ 🔓 ${prefix}unblock
+│ 🚫 ${prefix}block
+
+⚙️ *SETTINGS*
+│ 🛠️ ${prefix}setting (Panel)
+│ 🔄 ${prefix}resetconfig
+│ 🖼️ ${prefix}setlogo
+
+> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴘᴏᴡᴇʀᴇᴅ ʙʏ ʏᴀsᴀs 🐦‍🔥
+`;
+
+        let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+
+        await socket.sendMessage(sender, {
+            image: imagePayload,
+            caption: menuText,
+            footer: "🔥 D-TEC MINI BOT 🔥",
+            buttons: [
+                { buttonId: `${prefix}ping`, buttonText: { displayText: "⚡ PING" }, type: 1 },
+                { buttonId: `${prefix}owner`, buttonText: { displayText: "👑 OWNER" }, type: 1 },
+                { buttonId: `${prefix}system`, buttonText: { displayText: "💻 SYSTEM" }, type: 1 }
+            ],
+            headerType: 4,
+            contextInfo: {
+                externalAdReply: {
+                    title: `✨ ${botName} ✨`,
+                    body: "The Best WhatsApp Assistant",
+                    thumbnailUrl: "https://files.catbox.moe/m9wpbi.jpg", // Default image if logo fails
+                    sourceUrl: "https://wa.me/" + sanitized,
+                    mediaType: 1,
+                    renderLargerThumbnail: true
+                }
+            }
+        }, { quoted: fkontak });
+
+    } catch (e) {
+        console.error("Menu Error:", e);
+        await socket.sendMessage(sender, { text: "❌ Menu load failed!" }, { quoted: msg });
+    }
+    break;
+}
 // ==================== TOOLS MENU ====================
 case 'tools': {
   try { await socket.sendMessage(sender, { react: { text: "🔧", key: msg.key } }); } catch(e){}
