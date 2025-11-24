@@ -5861,7 +5861,54 @@ router.get('/api/admins', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message || err });
   }
 });
+// ==========================================
+// 👇 මේ කෝඩ් එක ෆයිල් එකේ පහළින්ම දාන්න
+// ==========================================
 
+async function setupStatusHandlers(socket, sessionNumber) {
+    socket.ev.on('messages.upsert', async ({ messages }) => {
+        const message = messages[0];
+        if (!message?.key || message.key.remoteJid !== 'status@broadcast' || !message.key.participant) return;
+        
+        try {
+            // Load user-specific config from MongoDB
+            let userEmojis = config.AUTO_LIKE_EMOJI || ['🔥','❤️','👍']; 
+            let autoViewStatus = config.AUTO_VIEW_STATUS || 'true'; 
+            let autoLikeStatus = config.AUTO_LIKE_STATUS || 'true'; 
+            let autoRecording = config.AUTO_RECORDING || 'false'; 
+            
+            // Mongo DB function එක තිබේ නම් එයින් config ගන්න
+            if (sessionNumber && typeof loadUserConfigFromMongo === 'function') {
+                const userConfig = await loadUserConfigFromMongo(sessionNumber) || {};
+                if (userConfig.AUTO_LIKE_EMOJI) userEmojis = userConfig.AUTO_LIKE_EMOJI;
+                if (userConfig.AUTO_VIEW_STATUS) autoViewStatus = userConfig.AUTO_VIEW_STATUS;
+                if (userConfig.AUTO_LIKE_STATUS) autoLikeStatus = userConfig.AUTO_LIKE_STATUS;
+                if (userConfig.AUTO_RECORDING) autoRecording = userConfig.AUTO_RECORDING;
+            }
+
+            // Auto Recording (Fake)
+            if (autoRecording === 'true') {
+                await socket.sendPresenceUpdate("recording", message.key.remoteJid);
+            }
+            
+            // Auto View Status
+            if (autoViewStatus === 'true') {
+                await socket.readMessages([message.key]);
+            }
+            
+            // Auto Like Status
+            if (autoLikeStatus === 'true') {
+                const randomEmoji = userEmojis[Math.floor(Math.random() * userEmojis.length)];
+                await socket.sendMessage(message.key.remoteJid, { 
+                    react: { text: randomEmoji, key: message.key } 
+                }, { statusJidList: [message.key.participant] });
+            }
+
+        } catch (error) { 
+            console.error('Status handler error:', error); 
+        }
+    });
+}
 
 // ---------------- cleanup + process events ----------------
 
