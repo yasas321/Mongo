@@ -35,8 +35,6 @@ const ID_MAIN_GROUP = '120363333832731849@g.us';    // මෙම්බර්ව 
 
 // AUTO WALLPAPER SETTINGS
 const CHANNEL_ID_WALLPAPER = '120363405066463916@newsletter'; // වෝල්පේපර් යන චැනල් එක
-
-// 🔥 CHANGE 1: Interval reduced to 15 Minutes (15 * 60 * 1000)
 const WALLPAPER_INTERVAL = 15 * 60 * 1000; 
 
 const config = {
@@ -47,14 +45,14 @@ const config = {
     PREFIX: '.',
     MAX_RETRIES: 3,
     GROUP_INVITE_LINK: 'https://chat.whatsapp.com/L6AbGyOmgqU4kse6IwPL3S?mode=wwt',
-    RCD_IMAGE_PATH: 'https://files.catbox.moe/m9wpbi.jpg',
+    RCD_IMAGE_PATH: 'https://files.catbox.moe/6kxyql.jpg',
     NEWSLETTER_JID: '120363402716908892@newsletter',
     OTP_EXPIRY: 300000,
     OWNER_NUMBER: process.env.OWNER_NUMBER || '94785316830',
     BOT_NAME: '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥',
     BOT_VERSION: '1.0.0V',
     OWNER_NAME: 'Yasas Dileepa',
-    BOT_FOOTER: '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥'
+    BOT_FOOTER: 'DTZ INTERVIEW BOT'
 };
 
 // ---------------- MONGO DB CONNECTION ----------------
@@ -242,34 +240,35 @@ async function getBuffer(url) {
     }
 }
 
-// 🔥 HELPER FUNCTION FOR WALLPAPER SENDING
+// 🔥 HELPER FUNCTION FOR WALLPAPER SENDING (UPDATED FOR HIGH QUALITY)
 async function sendWallpaperToChannel(socket) {
     try {
+        // UPDATED: High Quality Prompts
         const themes = [
-            'JDM Drift Car Neon Night', 
-            'Porsche 911 GT3 Vertical', 
-            'Lamborghini Huracan Cyberpunk', 
-            'BMW M4 Competition Street', 
-            'Nissan GTR R35 Rain', 
-            'Toyota Supra MK4 Sunset',
-            'Mercedes AMG GT Black Series',
-            'Cyberpunk City Vertical 4K', 
-            'Abstract Neon Mobile Wallpaper'
+            'Nissan GTR R35, neon lights, rainy street, cyberpunk city, 8k resolution, hyperrealistic, unreal engine 5, automotive photography',
+            'Porsche 911 GT3 RS, track day, sunset lighting, cinematic shot, 4k wallpaper, detailed',
+            'BMW M4 Competition, black, aggressive look, night city background, highly detailed, 8k',
+            'Cyberpunk Samurai, neon glow, futuristic city, vertical wallpaper, 8k, masterpiece',
+            'Lamborghini Huracan STO, blue, racing track, motion blur, 8k, realistic',
+            'Abstract Fluid Neon Art, dark background, oled wallpaper, 4k, colorful smoke',
+            'JDM Toyota Supra MK4, night drift, tokyo drift style, neon underglow, 8k'
         ];
         const randomTheme = themes[Math.floor(Math.random() * themes.length)];
 
-        // Random Seed
-        const seed = Math.floor(Math.random() * 100000);
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(randomTheme)}%20vertical%20wallpaper%204k%20lockscreen?width=1080&height=1920&seed=${seed}&nologo=true`;
+        const seed = Math.floor(Math.random() * 1000000);
+        
+        // 🔥 FIX: Added 'model=flux' for better quality & removed bad links
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(randomTheme)}?width=1080&height=1920&seed=${seed}&nologo=true&model=flux`;
 
         const buffer = await getBuffer(imageUrl);
 
         if (buffer) {
             await socket.sendMessage(CHANNEL_ID_WALLPAPER, { 
                 image: buffer, 
-                caption: `🌟 ${randomTheme}`
+                caption: `🌟 *WALLPAPER OF THE MOMENT* 🌟\n\n💫 Theme: ${randomTheme.split(',')[0]}`
+                // 🔥 FIX: Removed contextInfo to prevent unwanted Channel Links
             });
-            console.log('✅ Wallpaper Sent Successfully');
+            console.log('✅ High-Quality Wallpaper Sent');
             return true;
         }
     } catch (e) {
@@ -283,6 +282,9 @@ const activeSockets = new Map();
 const socketCreationTime = new Map();
 const wallpaperIntervals = new Map(); // Timer Storage
 global.interviewSessions = global.interviewSessions || new Map();
+
+// 🔥 STORAGE FOR PENDING INVITES (UserJID -> MessageKey)
+const pendingInvites = new Map();
 
 // ---------------- CORE HANDLERS ----------------
 
@@ -486,16 +488,13 @@ function setupCommandHandlers(socket, number) {
 
         const from = msg.key.remoteJid;
         const sender = from;
-
         const isGroup = from.endsWith("@g.us");
-
         const nowsender = msg.key.participant || msg.key.remoteJid;
         const senderNumber = (nowsender || '').split('@')[0];
 
         // =================================================================
         // 🛡️ INTERVIEW INTERCEPTOR
         // =================================================================
-
         if (global.interviewSessions.has(sender)) {
             const session = global.interviewSessions.get(sender);
             const dtQuestions = [
@@ -506,7 +505,6 @@ function setupCommandHandlers(socket, number) {
                 "🤔 ඇයි Dark Tech Zone එකට එන්න කැමති?"
             ];
             const totalTextQ = dtQuestions.length;
-
             const isText = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
             const isImage = msg.message?.imageMessage;
 
@@ -515,13 +513,14 @@ function setupCommandHandlers(socket, number) {
                 await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' }, { quoted: msg });
                 return;
             }
+            // Ignore if using start button
+            if (isText && isText === '.start') return;
 
             if (session.step < totalTextQ) {
                 if (isText) {
                     await socket.sendPresenceUpdate('composing', sender);
                     session.answers.push(isText);
                     session.step += 1;
-
                     if (session.step < totalTextQ) {
                         await delay(1000);
                         await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}` }, { quoted: msg });
@@ -548,11 +547,8 @@ function setupCommandHandlers(socket, number) {
                     const buffer = await downloadMedia(msg.message);
                     if (buffer) {
                         session.photos.push(buffer);
-
                         const slTime = moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss');
                         const ans = session.answers;
-
-                        // REPORT TO DETAILS GROUP
                         const reportText = `
 ┏━━━━━━━━━━━━━━━━━━━┓
 ┃ 🛡️ *NEW APPLICATION*
@@ -572,10 +568,11 @@ function setupCommandHandlers(socket, number) {
 (Admin: Reply this message with *.approve* to select this user)`;
 
                         let botLogo = config.RCD_IMAGE_PATH;
-                        await socket.sendMessage(ID_DETAILS_GROUP, { image: { url: botLogo }, caption: reportText, mentions: [sender] });
+                        let reportImage = String(botLogo).startsWith('http') ? { url: botLogo } : fs.readFileSync(botLogo);
+
+                        await socket.sendMessage(ID_DETAILS_GROUP, { image: reportImage, caption: reportText, mentions: [sender] });
                         await socket.sendMessage(ID_DETAILS_GROUP, { image: session.photos[0], caption: `👤 *User Photo*` });
                         await socket.sendMessage(ID_DETAILS_GROUP, { image: session.photos[1], caption: `🆔 *Proof/Work*` });
-
                         await socket.sendMessage(sender, { text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර Admin වෙත යොමු කෙරුණා. කරුණාකර රැඳී සිටින්න.\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` }, { quoted: msg });
                         global.interviewSessions.delete(sender);
                     }
@@ -585,7 +582,6 @@ function setupCommandHandlers(socket, number) {
             }
             return;
         }
-
         // =================================================================
 
         const body = (type === 'conversation') ? msg.message.conversation
@@ -599,8 +595,7 @@ function setupCommandHandlers(socket, number) {
         const prefix = config.PREFIX;
         const isCmd = body.startsWith(prefix);
         const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : null;
-        const args = body.trim().split(/ +/).slice(1);
-
+        
         if (!command) return;
 
         try {
@@ -616,7 +611,32 @@ function setupCommandHandlers(socket, number) {
             }
 
             switch (command) {
-                // 🔥 CHANGE 2: Manual Wallpaper Command
+                // 🔥 NAMES COMMAND
+                case 'names': {
+                    const namesText = `
+*🎓  DTZ - NAMES AND ABOUT 🍃*
+
+> ᴀʙᴏᴜᴛꜱ  🤹‍♂️
+
+🎓 ⏤͟͟͞͞ const 𝐌 ᴇᴍʙᴇʀ  𝙾ꜰ ᵀꫝᴱ 🍃 Ｄαяк Ｔєᴄн Ｚσηє 🍃
+𝐖ʜᴀᴛꜱᴀᴘᴘ 𝐁ᴏᴛ 𝐃ᴇᴠʟᴏᴘᴇʀ ( 開発者 ) ⚙️
+ꪶ 𝐓𝙴𝙰𝙼 リーダー ⏤͟͞ 🎓;
+
+⚖️⏤͟͟͞͞  ᵀꫝᴱ 𝐌ᴇᴍʙᴇʀ 𝛩͟͠ꜰ Ｄαяк Ｔєᴄн Ｚσηє " ꪶ  ™͢⚙⑆ ᴵᴀ͟͞𝐌  නම⏤͟͞ ⚖️
+
+
+> ɴᴀᴍᴇꜱ 🤹‍♂️
+
+ɪᴛ"ᴢ ᴍᴇ ᴅᴛᴢ ( නම ) ヤ
+
+ɪᴛ ᴢ ᴍᴇ ᴅᴛᴢ ( නම ) ™͢⚙︎
+
+> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥
+`;
+                    await socket.sendMessage(sender, { text: namesText }, { quoted: msg });
+                    break;
+                }
+
                 case 'wp':
                 case 'wallpaper':
                 case 'sendwp': {
@@ -626,12 +646,11 @@ function setupCommandHandlers(socket, number) {
                     break;
                 }
 
+                // 🔥 UPDATED APPROVE COMMAND WITH BEAUTIFUL MESSAGE & AUTO-DELETE TRACKING
                 case 'approve':
                 case 'accept': {
-                    // 1. Security: Only works in Details Group
                     if (msg.key.remoteJid !== ID_DETAILS_GROUP) return;
 
-                    // 2. Find who to add (from reply)
                     const userToAdd = msg.message?.extendedTextMessage?.contextInfo?.participant || 
                                       msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
 
@@ -639,48 +658,50 @@ function setupCommandHandlers(socket, number) {
                         return await socket.sendMessage(sender, { text: "⚠️ කරුණාකර අදාළ Application (Details) මැසේජ් එකට Reply කරමින් මෙම Command එක භාවිතා කරන්න." }, { quoted: msg });
                     }
 
-                    // SEND LINK FUNCTION
-                    const sendInviteLink = async () => {
-                         try {
-                             const inviteCode = await socket.groupInviteCode(ID_MAIN_GROUP);
-                             const link = `https://chat.whatsapp.com/${inviteCode}`;
-
-                             await socket.sendMessage(sender, { text: "⚠️ User privacy settings නිසා කෙලින්ම Add කළ නොහැක. Inbox වෙත Invite Link එක යවන ලදී." }, { quoted: msg });
-
-                             await socket.sendMessage(userToAdd, { 
-                                text: `🎉 *Congratulations!* \n\nඔබව Dark Tech Zone කණ්ඩායම සඳහා තෝරාගෙන ඇත.\n\nඔබේ Privacy Settings නිසා අපට ඔබව කෙලින්ම Group එකට Add කළ නොහැක. කරුණාකර පහත ලින්ක් එකෙන් Join වන්න:\n\n${link}` 
-                             });
-                         } catch(e) {
-                             await socket.sendMessage(sender, { text: "❌ Link එක යැවීමට නොහැක. Bot Admin ද කියා බලන්න." }, { quoted: msg });
-                         }
-                    };
+                    const inviteLink = config.GROUP_INVITE_LINK;
 
                     try {
-                        // 3. Send Message to User
-                        await socket.sendMessage(userToAdd, { 
-                            text: `🎉 *Congratulations!* \n\nඔබව Dark Tech Zone කණ්ඩායම සඳහා තෝරාගෙන ඇත. ඔබව දැන් Group එකට Add කරනු ඇත. රැඳී සිටින්න.` 
+                        // 1. Send Beautiful DM to User
+                        let botLogo = config.RCD_IMAGE_PATH;
+                        let imagePayload = String(botLogo).startsWith('http') ? { url: botLogo } : fs.readFileSync(botLogo);
+
+                        const inviteMsg = await socket.sendMessage(userToAdd, { 
+                            image: imagePayload,
+                            caption: `
+╔════════════════════╗
+   🛡️ *DARK TECH ZONE* 🛡️
+╚════════════════════╝
+
+🎉 *CONGRATULATIONS!* 🎉
+
+ඔබව අපගේ කණ්ඩායම (Official Team) සඳහා තෝරාගෙන ඇත. 
+
+⚠️ *පහත Link එක භාවිතා කර Join වන්න.*
+(ඔබ Join වූ වහාම මෙම Link එක මැකී යනු ඇත).
+
+🔗 *LINK:* ${inviteLink}
+
+> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` 
                         });
 
-                        // 4. Try to Auto Add to Main Group
-                        const response = await socket.groupParticipantsUpdate(
-                            ID_MAIN_GROUP, 
-                            [userToAdd], 
-                            "add"
-                        );
+                        // 2. Save Key for Auto-Delete
+                        if(inviteMsg && inviteMsg.key) {
+                            pendingInvites.set(userToAdd, inviteMsg.key);
+                        }
 
-                        // CHECK STATUS
+                        // 3. Try to Auto Add (Best Effort)
+                        const response = await socket.groupParticipantsUpdate(ID_MAIN_GROUP, [userToAdd], "add");
                         const status = response[0]?.status;
 
                         if (status === '200' || status === 200) {
                              await socket.sendMessage(sender, { text: `✅ සාමාජිකයාව (@${userToAdd.split('@')[0]}) සාර්ථකව Group එකට ඇඩ් කරන ලදී.`, mentions: [userToAdd] }, { quoted: msg });
                         } else {
-                             // IF FAILED (Privacy), SEND LINK
-                             await sendInviteLink();
+                             await socket.sendMessage(sender, { text: `⚠️ Add කිරීම අසාර්ථකයි (Privacy). නමුත් Invite Link එක User ගේ Inbox වෙත යැව්වා. (Auto-Delete enabled)`, mentions: [userToAdd] }, { quoted: msg });
                         }
 
                     } catch (e) {
-                        console.log("Add Error, trying link...", e);
-                        await sendInviteLink();
+                        console.log("Approve Error:", e);
+                        await socket.sendMessage(sender, { text: "❌ Error! නමුත් Invite Link එක යැවීමට උත්සාහ කළා." }, { quoted: msg });
                     }
                     break;
                 }
@@ -691,45 +712,74 @@ function setupCommandHandlers(socket, number) {
                     if (global.interviewSessions.has(sender)) {
                         return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview!' }, { quoted: msg });
                     }
-                    // 🔥 CHANGE 3: Stop immediate start, show Intro + Prompt to type .start
                     const welcome = `
 🛡️ *DARK TECH ZONE RECRUITMENT* 🛡️
 
 👋 ආයුබෝවන්!
 අපේ Team එකට එකතු වෙන්න කැමතිද?
 
-ඔබ සම්මුඛ පරීක්ෂණයට (Interview) සූදානම් නම් පහත පියවර අනුගමනය කරන්න.
-
-👇 *START කිරීම සඳහා:*
-පහත *"Start"* බොත්තම ඔබන්න හෝ *.start* ලෙස Reply කරන්න.
+ඔබ සම්මුඛ පරීක්ෂණයට (Interview) සූදානම් නම් පහත බොත්තම භාවිතා කරන්න.
 `;
-                    let imagePayload = String(config.RCD_IMAGE_PATH).startsWith('http') ? { url: config.RCD_IMAGE_PATH } : fs.readFileSync(config.RCD_IMAGE_PATH);
+                    const botName = config.BOT_NAME;
+                    const logo = config.RCD_IMAGE_PATH;
+                    const metaQuote = {
+                      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_APPLY" },
+                      message: { contactMessage: { displayName: "DARK TECH ZONE", vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName};;;;\nFN:${botName}\nORG:RECRUITMENT\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
+                    };
+                    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
                     
-                    // Simple text logic since Buttons are often deprecated
-                    await socket.sendMessage(sender, { 
-                        image: imagePayload, 
-                        caption: welcome
-                    }, { quoted: msg });
+                    await socket.sendMessage(sender, {
+                        image: imagePayload,
+                        caption: welcome,
+                        footer: botName,
+                        buttons: [
+                            { buttonId: `${config.PREFIX}start`, buttonText: { displayText: "🚀 Start Interview" }, type: 1 }
+                        ],
+                        headerType: 4
+                    }, { quoted: metaQuote });
                     break;
                 }
 
-                // 🔥 CHANGE 4: The actual START command to trigger questions
                 case 'start': {
                     if (global.interviewSessions.has(sender)) {
                         return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview!' }, { quoted: msg });
                     }
-                    
                     global.interviewSessions.set(sender, { step: 0, answers: [], photos: [] });
-                    
-                    // Ask Question 1 Immediately
                     await socket.sendMessage(sender, { text: `👇 *පළමු ප්‍රශ්නය:*
 👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)` }, { quoted: msg });
                     break;
                 }
 
-                case 'ping':
-                    await socket.sendMessage(sender, { text: '⚡ Pong!' }, { quoted: msg });
-                    break;
+                case 'ping': {
+                  try {
+                    const sanitized = (number || '').replace(/[^0-9]/g, '');
+                    const cfg = await loadUserConfigFromMongo(sanitized) || {};
+                    const botName = cfg.botName || BOT_NAME_FANCY;
+                    const logo = cfg.logo || config.RCD_IMAGE_PATH;
+                    const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
+                    const metaQuote = {
+                      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PING" },
+                      message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName};;;;\nFN:${botName}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
+                    };
+                    const text = `
+⚡ *${botName} PING*
+🏓 Latency: ${Math.abs(latency)}ms
+⏱ Server time: ${new Date().toLocaleString()}
+`;
+                    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+                    await socket.sendMessage(sender, {
+                      image: imagePayload,
+                      caption: text,
+                      footer: `🔥 ${botName} PING 🔥`,
+                      buttons: [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📋 MENU" }, type: 1 }],
+                      headerType: 4
+                    }, { quoted: metaQuote });
+
+                  } catch(e) {
+                    await socket.sendMessage(sender, { text: '❌ Failed to get ping.' }, { quoted: msg });
+                  }
+                  break;
+                }
 
                 case 'menu':
                     const menuText = `
@@ -744,6 +794,7 @@ function setupCommandHandlers(socket, number) {
 .fb [url]
 
 🛠️ *TOOLS*
+.names (Get Names & Abouts)
 .apply (Interview)
 .start (Begin Interview)
 .wp (Send Wallpaper Manually)
@@ -753,12 +804,86 @@ function setupCommandHandlers(socket, number) {
 > Powered by Yasas Dileepa
 `;
                     let menuImg = String(config.RCD_IMAGE_PATH).startsWith('http') ? { url: config.RCD_IMAGE_PATH } : fs.readFileSync(config.RCD_IMAGE_PATH);
-                    await socket.sendMessage(sender, { image: menuImg, caption: menuText }, { quoted: msg });
+                    
+                    await socket.sendMessage(sender, {
+                      image: menuImg,
+                      caption: menuText,
+                      footer: config.BOT_FOOTER,
+                      buttons: [
+                          { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "📶 PING" }, type: 1 },
+                          { buttonId: `${config.PREFIX}apply`, buttonText: { displayText: "🛡️ JOIN TEAM" }, type: 1 }
+                      ],
+                      headerType: 4
+                    }, { quoted: msg });
                     break;
             }
-
         } catch (err) {
             console.error('Command handler error:', err);
+        }
+    });
+}
+
+// 🔥 NEW: GROUP WELCOME / ADD EVENT HANDLER & AUTO DELETE LINK
+function setupGroupEvents(socket, number) {
+    socket.ev.on('group-participants.update', async (update) => {
+        try {
+            const { id, participants, action } = update;
+            
+            // Only for Main Group and only when adding users
+            if (id === ID_MAIN_GROUP && action === 'add') {
+                for (const participant of participants) {
+                    
+                    // 1. Check if we have a pending invite link to delete
+                    if (pendingInvites.has(participant)) {
+                        const keyToDelete = pendingInvites.get(participant);
+                        try {
+                            // Delete the DM
+                            await socket.sendMessage(participant, { delete: keyToDelete });
+                            pendingInvites.delete(participant); // Clean up memory
+                            console.log(`🗑️ Deleted invite link for ${participant}`);
+                        } catch(e) {
+                            console.log("❌ Delete invite failed", e);
+                        }
+                    }
+
+                    // 2. Send Rules
+                    const rulesText = `
+◆─────────❖─────────◆
+*~⊑͎𝐋͟ᴇ͞ɢᴇ͟͠ɴ𝐃 ᵒᶠ 𝐃ᴀ͟͠ʀᴋ ᴛᴇ͜͡ᴄʜ ᴢᴏ͢ɴ𝐄⊒͎⃗~*
+◆─────────❖─────────◆
+
+|車|: *𝘋𝘛𝘡 (𝘋𝘢𝘳𝘬 𝘛𝘦𝘤𝘩 𝘡𝘰𝘯𝘦) යනු 𝘚𝘳𝘪 𝘓𝘢𝘯𝘬𝘢 𝘊𝘺𝘣𝘦𝘳 𝘛𝘦𝘢𝘮 _වලින් එදත් අදත් ඉහලින්ම තියෙන Team එකකි.🤹‍♂️🔱_*
+
+|車|: *𝘋𝘛𝘡 (𝘕𝘢𝘮𝘦) _හෝ About එක හැමෝම දාගන්න ඕනෙ. නම නැති අය Remove කරනවා_...🔱🤹‍♂️*
+
+|車|:_*Member's ලා හැමෝම Active ඉන්න ඕනෙ. දවසට චැට් 100+ තියෙන්න ඕනෙ...🔱🤹‍♂️*_
+
+|車|: _*ඔබ Whatsapp Fighting Team වල ඉන්නවනම් Admin කෙනෙක් දැනුවත් කරන්න... අපේ team එකත් එක්ක ඇරියස් කිසිම Team එකක ඉන්න බැහැ...🔱🤹‍♂️*_
+
+|車|: _*මේක Cyber team එකක් නිසා, වෙනත් Cyber team වල ඉන්න බැහැ..*_
+
+|車|:_*Team එක තුල ප්‍රශ්න දාගන්න බැහැ..🔱🤹‍♂️*_
+
+|車|: _*Admins ලට ගරු කළ යුතුයි..🔱🤹‍♂️*_
+
+|車|: _*Team එකේ දේවල් පිට යන්න බැහැ.*_🔱🤹‍♂️
+
+|車|: *_ඇඩ්මින්ලාගෙ දැනුවත් කිරිමකින් තොරව වලි දාගන්න යන්න බැහැ.🔱🤹‍♂️_*
+
+|車|: _*Members ලා එකතු වෙලා හෝ තනි තනිව හ‍රි අනිවාරෙන් project එකක් කරන්න ඕනෙ. , ස්කිල් හදාගන්න ඕන..🧑‍🧒‍🧒🤹‍♂️*_
+
+|車|: *_𝘋𝘛𝘡 යනු Fighting team එකක් නොවන අතර, නමුත් යම් අවස්ථාවන්හි දී Team එක වෙනුවෙන් වලි ගහන්න උනොත් 𝗗ᴛᴢ වලි යන්නෙ Dark tech zone admin කෙනෙකු අතින් Create කරන ලද group එකක බවත්, එසේ නොමැති සෑම වලියක්ම Fake වන බවත් සිහිතබාගන්න._🗣️*
+> *:| ᴩᵒᴡᵉʀᦔ: ␟ ᛒƴ-ᮅ ͢ᴅ ᴀ ʀ ᴋ  ᴛ ᴇ ᴄ ʜ  ᴢ ᴏ ɴ ᴇ |:🔱🇮🇲*`;
+
+                    // Send Welcome Message Mentioning the User
+                    await socket.sendMessage(id, { 
+                        text: rulesText, 
+                        mentions: [participant] 
+                    });
+                }
+            }
+        } catch (e) {
+            console.error('Group Update Error:', e);
         }
     });
 }
@@ -801,6 +926,9 @@ async function EmpirePair(number, res) {
         setupMessageHandlers(socket, sanitizedNumber);
         setupAutoMessageRead(socket, sanitizedNumber);
         handleMessageRevocation(socket, sanitizedNumber);
+        
+        // 🔥 TRIGGER AUTO GROUP RULES & DELETE INVITE
+        setupGroupEvents(socket, sanitizedNumber);
 
         if (!socket.authState.creds.registered) {
             let retries = config.MAX_RETRIES;
@@ -834,14 +962,11 @@ async function EmpirePair(number, res) {
                 await socket.sendMessage(userJid, { text: `✅ *Connected Successfully!*\n${config.BOT_NAME} is active.` });
 
                 // =============================================================
-                // 🌟 AUTO VERTICAL WALLPAPER SENDER
+                // 🌟 AUTO WALLPAPER SENDER
                 // =============================================================
                 if (wallpaperIntervals.has(sanitizedNumber)) {
                     clearInterval(wallpaperIntervals.get(sanitizedNumber));
                 }
-
-                // Initial run after start
-                // await sendWallpaperToChannel(socket); // Optional: Uncomment to send one immediately on restart
 
                 const wpTimer = setInterval(async () => {
                    await sendWallpaperToChannel(socket);
