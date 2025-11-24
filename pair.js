@@ -240,10 +240,9 @@ async function getBuffer(url) {
     }
 }
 
-// 🔥 HELPER FUNCTION FOR WALLPAPER SENDING (UPDATED FOR HIGH QUALITY)
+// 🔥 HELPER FUNCTION FOR WALLPAPER SENDING
 async function sendWallpaperToChannel(socket) {
     try {
-        // UPDATED: High Quality Prompts
         const themes = [
             'Nissan GTR R35, neon lights, rainy street, cyberpunk city, 8k resolution, hyperrealistic, unreal engine 5, automotive photography',
             'Porsche 911 GT3 RS, track day, sunset lighting, cinematic shot, 4k wallpaper, detailed',
@@ -257,7 +256,6 @@ async function sendWallpaperToChannel(socket) {
 
         const seed = Math.floor(Math.random() * 1000000);
         
-        // 🔥 FIX: Added 'model=flux' for better quality & removed bad links
         const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(randomTheme)}?width=1080&height=1920&seed=${seed}&nologo=true&model=flux`;
 
         const buffer = await getBuffer(imageUrl);
@@ -266,7 +264,6 @@ async function sendWallpaperToChannel(socket) {
             await socket.sendMessage(CHANNEL_ID_WALLPAPER, { 
                 image: buffer, 
                 caption: `🌟 *WALLPAPER OF THE MOMENT* 🌟\n\n💫 Theme: ${randomTheme.split(',')[0]}`
-                // 🔥 FIX: Removed contextInfo to prevent unwanted Channel Links
             });
             console.log('✅ High-Quality Wallpaper Sent');
             return true;
@@ -513,7 +510,7 @@ function setupCommandHandlers(socket, number) {
                 await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' }, { quoted: msg });
                 return;
             }
-            // Ignore if using start button
+           
             if (isText && isText === '.start') return;
 
             if (session.step < totalTextQ) {
@@ -584,10 +581,13 @@ function setupCommandHandlers(socket, number) {
         }
         // =================================================================
 
+        // 🔥 FIX: ADDED BUTTON RESPONSE READERS HERE 🔥
         const body = (type === 'conversation') ? msg.message.conversation
             : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
             : (type === 'imageMessage') ? msg.message.imageMessage.caption
             : (type === 'videoMessage') ? msg.message.videoMessage.caption
+            : (type === 'buttonsResponseMessage') ? msg.message.buttonsResponseMessage.selectedButtonId
+            : (type === 'templateButtonReplyMessage') ? msg.message.templateButtonReplyMessage.selectedId
             : '';
 
         if (!body || typeof body !== 'string') return;
@@ -618,9 +618,7 @@ function setupCommandHandlers(socket, number) {
 
 > ᴀʙᴏᴜᴛꜱ  🤹‍♂️
 
-🎓 ⏤͟͟͞͞ const 𝐌 ᴇᴍʙᴇʀ  𝙾ꜰ ᵀꫝᴱ 🍃 Ｄαяк Ｔєᴄн Ｚσηє 🍃
-𝐖ʜᴀᴛꜱᴀᴘᴘ 𝐁ᴏᴛ 𝐃ᴇᴠʟᴏᴘᴇʀ ( 開発者 ) ⚙️
-ꪶ 𝐓𝙴𝙰𝙼 リーダー ⏤͟͞ 🎓;
+
 
 ⚖️⏤͟͟͞͞  ᵀꫝᴱ 𝐌ᴇᴍʙᴇʀ 𝛩͟͠ꜰ Ｄαяк Ｔєᴄн Ｚσηє " ꪶ  ™͢⚙⑆ ᴵᴀ͟͞𝐌  නම⏤͟͞ ⚖️
 
@@ -631,7 +629,7 @@ function setupCommandHandlers(socket, number) {
 
 ɪᴛ ᴢ ᴍᴇ ᴅᴛᴢ ( නම ) ™͢⚙︎
 
-> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥
+
 `;
                     await socket.sendMessage(sender, { text: namesText }, { quoted: msg });
                     break;
