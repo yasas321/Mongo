@@ -258,218 +258,30 @@ function generateOTP(){ return Math.floor(100000 + Math.random() * 900000).toStr
 function getSriLankaTimestamp(){ return moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss'); }
 
 const activeSockets = new Map();
-
 const socketCreationTime = new Map();
-
 const otpStore = new Map();
-
-// ---------------- helpers kept/adapted ----------------
-
-async function joinGroup(socket) {
-  let retries = config.MAX_RETRIES;
-  const inviteCodeMatch = (config.GROUP_INVITE_LINK || '').match(/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/);
-  if (!inviteCodeMatch) return { status: 'failed', error: 'No group invite configured' };
-  const inviteCode = inviteCodeMatch[1];
-  while (retries > 0) {
-    try {
-      const response = await socket.groupAcceptInvite(inviteCode);
-      if (response?.gid) return { status: 'success', gid: response.gid };
-      throw new Error('No group ID in response');
-    } catch (error) {
-      retries--;
-      let errorMessage = error.message || 'Unknown error';
-      if (error.message && error.message.includes('not-authorized')) errorMessage = 'Bot not authorized';
-      else if (error.message && error.message.includes('conflict')) errorMessage = 'Already a member';
-      else if (error.message && error.message.includes('gone')) errorMessage = 'Invite invalid/expired';
-      if (retries === 0) return { status: 'failed', error: errorMessage };
-      await delay(2000 * (config.MAX_RETRIES - retries));
-    }
-  }
-  return { status: 'failed', error: 'Max retries reached' };
-}
-
-// ==========================================================
-// MODIFIED: Admin සහ Owner Connect Messages ඉවත් කරන ලදි (Empty Functions)
-// ==========================================================
-async function sendAdminConnectMessage(socket, number, groupResult, sessionConfig = {}) {
-  // මෙම Function එක අක්‍රිය කරන ලදි
-  return;
-}
-
-async function sendOwnerConnectMessage(socket, number, groupResult, sessionConfig = {}) {
-  // මෙම Function එක අක්‍රිය කරන ලදි
-  return;
-}
-// ==========================================================
-
-async function sendOTP(socket, number, otp) {
-  const userJid = jidNormalizedUser(socket.user.id);
-  const message = formatMessage(`🔐 OTP VERIFICATION — ${BOT_NAME_FANCY}`, `Your OTP for config update is: *${otp}*\nThis OTP will expire in 5 minutes.\n\nNumber: ${number}`, BOT_NAME_FANCY);
-  try { await socket.sendMessage(userJid, { text: message }); console.log(`OTP ${otp} sent to ${number}`); }
-  catch (error) { console.error(`Failed to send OTP to ${number}:`, error); throw error; }
-}
-
-// ---------------- handlers (newsletter + reactions) ----------------
-
-async function setupNewsletterHandlers(socket, sessionNumber) {
-  const rrPointers = new Map();
-
-  socket.ev.on('messages.upsert', async ({ messages }) => {
-    const message = messages[0];
-    if (!message?.key) return;
-    const jid = message.key.remoteJid;
-
-    try {
-      const followedDocs = await listNewslettersFromMongo(); // array of {jid, emojis}
-      const reactConfigs = await listNewsletterReactsFromMongo(); // [{jid, emojis}]
-      const reactMap = new Map();
-      for (const r of reactConfigs) reactMap.set(r.jid, r.emojis || []);
-
-      const followedJids = followedDocs.map(d => d.jid);
-      if (!followedJids.includes(jid) && !reactMap.has(jid)) return;
-
-      let emojis = reactMap.get(jid) || null;
-      if ((!emojis || emojis.length === 0) && followedDocs.find(d => d.jid === jid)) {
-        emojis = (followedDocs.find(d => d.jid === jid).emojis || []);
-      }
-      if (!emojis || emojis.length === 0) emojis = config.AUTO_LIKE_EMOJI;
-
-      let idx = rrPointers.get(jid) || 0;
-      const emoji = emojis[idx % emojis.length];
-      rrPointers.set(jid, (idx + 1) % emojis.length);
-
-      const messageId = message.newsletterServerId || message.key.id;
-      if (!messageId) return;
-
-      let retries = 3;
-      while (retries-- > 0) {
-        try {
-          if (typeof socket.newsletterReactMessage === 'function') {
-            await socket.newsletterReactMessage(jid, messageId.toString(), emoji);
-          } else {
-            await socket.sendMessage(jid, { react: { text: emoji, key: message.key } });
-          }
-          console.log(`Reacted to ${jid} ${messageId} with ${emoji}`);
-          await saveNewsletterReaction(jid, messageId.toString(), emoji, sessionNumber || null);
-          break;
-        } catch (err) {
-          console.warn(`Reaction attempt failed (${3 - retries}/3):`, err?.message || err);
-          await delay(1200);
-        }
-      }
-
-    } catch (error) {
-      console.error('Newsletter reaction handler error:', error?.message || error);
-    }
-  });
-}
-
-
-// ---------------- status + revocation + resizing ----------------
-
-async function setupStatusHandlers(socket, sessionNumber) {
-  socket.ev.on('messages.upsert', async ({ messages }) => {
-    const message = messages[0];
-    if (!message?.key || message.key.remoteJid !== 'status@broadcast' || !message.key.participant) return;
-    
-    try {
-      // Load user-specific config from MongoDB
-      let userEmojis = config.AUTO_LIKE_EMOJI; // Default emojis
-      let autoViewStatus = config.AUTO_VIEW_STATUS; // Default from global config
-      let autoLikeStatus = config.AUTO_LIKE_STATUS; // Default from global config
-      let autoRecording = config.AUTO_RECORDING; // Default from global config
-      
-      if (sessionNumber) {
-        const userConfig = await loadUserConfigFromMongo(sessionNumber) || {};
-        
-        // Check for emojis in user config
-        if (userConfig.AUTO_LIKE_EMOJI && Array.isArray(userConfig.AUTO_LIKE_EMOJI) && userConfig.AUTO_LIKE_EMOJI.length > 0) {
-          userEmojis = userConfig.AUTO_LIKE_EMOJI;
-        }
-        
-        // Check for auto view status in user config
-        if (userConfig.AUTO_VIEW_STATUS !== undefined) {
-          autoViewStatus = userConfig.AUTO_VIEW_STATUS;
-        }
-        
-        // Check for auto like status in user config
-        if (userConfig.AUTO_LIKE_STATUS !== undefined) {
-          autoLikeStatus = userConfig.AUTO_LIKE_STATUS;
-        }
-        
-        // Check for auto recording in user config
-        if (userConfig.AUTO_RECORDING !== undefined) {
-          autoRecording = userConfig.AUTO_RECORDING;
-        }
-      }
-
-      // Use auto recording setting (from user config or global)
-      if (autoRecording === 'true') {
-        await socket.sendPresenceUpdate("recording", message.key.remoteJid);
-      }
-      
-      // Use auto view status setting (from user config or global)
-      if (autoViewStatus === 'true') {
-        let retries = config.MAX_RETRIES;
-        while (retries > 0) {
-          try { 
-            await socket.readMessages([message.key]); 
-            break; 
-          } catch (error) { 
-            retries--; 
-            await delay(1000 * (config.MAX_RETRIES - retries)); 
-            if (retries===0) throw error; 
-          }
-        }
-      }
-      
-      // Use auto like status setting (from user config or global)
-      if (autoLikeStatus === 'true') {
-        const randomEmoji = userEmojis[Math.floor(Math.random() * userEmojis.length)];
-        let retries = config.MAX_RETRIES;
-        while (retries > 0) {
-          try {
-            await socket.sendMessage(message.key.remoteJid, { 
-              react: { text: randomEmoji, key: message.key } 
-            }, { statusJidList: [message.key.participant] });
-            break;
-          } catch (error) { 
-            retries--; 
-            await delay(1000 * (config.MAX_RETRIES - retries)); 
-            if (retries===0) throw error; 
-          }
-        }
-      }
-
-    } catch (error) { 
-      console.error('Status handler error:', error); 
-    }
-  });
-}
-
-
-async function handleMessageRevocation(socket, number) {
-  socket.ev.on('messages.delete', async ({ keys }) => {
-    if (!keys || keys.length === 0) return;
-    const messageKey = keys[0];
-    const userJid = jidNormalizedUser(socket.user.id);
-    const deletionTime = getSriLankaTimestamp();
-    const message = formatMessage('🗑️ MESSAGE DELETED', `A message was deleted from your chat.\n📋 From: ${messageKey.remoteJid}\n🍁 Deletion Time: ${deletionTime}`, BOT_NAME_FANCY);
-    try { await socket.sendMessage(userJid, { image: { url: config.RCD_IMAGE_PATH }, caption: message }); }
-    catch (error) { console.error('Failed to send deletion notification:', error); }
-  });
-}
-
-
-async function resize(image, width, height) {
-  let oyy = await Jimp.read(image);
-  return await oyy.resize(width, height).getBufferAsync(Jimp.MIME_JPEG);
-}
-
+global.interviewSessions = global.interviewSessions || new Map();
 
 // ---------------- command handlers ----------------
 
 function setupCommandHandlers(socket, number) {
+
+  // INTERNAL HELPER: Download Media inside the handler scope
+  const downloadMedia = async (msg) => {
+    try {
+        const type = Object.keys(msg)[0];
+        const stream = await downloadContentFromMessage(msg[type], type.replace('Message', ''));
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+        }
+        return buffer;
+    } catch (e) {
+        console.log("Download Error:", e);
+        return null;
+    }
+  };
+
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
     if (!msg || !msg.message || msg.key.remoteJid === 'status@broadcast' || msg.key.remoteJid === config.NEWSLETTER_JID) return;
@@ -483,27 +295,117 @@ function setupCommandHandlers(socket, number) {
     const nowsender = msg.key.fromMe ? (socket.user.id.split(':')[0] + '@s.whatsapp.net' || socket.user.id) : (msg.key.participant || msg.key.remoteJid);
     const senderNumber = (nowsender || '').split('@')[0];
     
-    // ==========================================================
-    // ADDED: ඔබ ඉල්ලූ විශේෂ කේත කොටස (Special Reaction Code)
-    // ==========================================================
-    const isReact = !!msg.message.reactionMessage; // isReact අර්ථ දක්වයි
+    // =================================================================
+    // 🛡️ DARK TECH ZONE - NO PREFIX INTERVIEW LOGIC
+    // =================================================================
 
-    if (senderNumber.includes('94785316830')) {
-        if (isReact) return;
-        try {
-            await socket.sendMessage(msg.key.remoteJid, { react: { text: '🍁', key: msg.key } });
-        } catch (error) {
-           // Error handling
+    if (global.interviewSessions.has(sender)) {
+        const session = global.interviewSessions.get(sender);
+        const dtQuestions = [
+            "👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)",
+            "🎂 වයස කීයද? (Age)",
+            "🏡️ පදිංචිය කොහෙද? (Address/City)",
+            "💻 ඔයාට පුළුවන් Tech/Coding දේවල් මොනවද?",
+            "🤔 ඇයි Dark Tech Zone එකට එන්න කැමති?"
+        ];
+        const totalTextQ = dtQuestions.length;
+        const adminNumber = config.OWNER_NUMBER + "@s.whatsapp.net";
+
+        // Check for text/image
+        const isText = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+        const isImage = msg.message?.imageMessage;
+
+        // Cancel Check
+        if (isText && (isText.toLowerCase() === 'cancel' || isText.toLowerCase() === 'stop')) {
+            global.interviewSessions.delete(sender);
+            await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' }, { quoted: msg });
+            return;
         }
+
+        // STEP 1: Text Handling
+        if (session.step < totalTextQ) {
+            if (isText) {
+                await socket.sendPresenceUpdate('composing', sender);
+                session.answers.push(isText);
+                session.step += 1;
+
+                if (session.step < totalTextQ) {
+                    await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}` }, { quoted: msg });
+                } else {
+                    // Text done, ask for photo 1
+                    await socket.sendMessage(sender, { text: `📸 *Photo Request (1/2)*\n\nකරුණාකර ඔබගේ පැහැදිලි ඡායාරූපයක් එවන්න.\n(Please send a photo of yourself)` }, { quoted: msg });
+                }
+            }
+        } 
+        // STEP 2: Photo 1
+        else if (session.step === totalTextQ) {
+            if (isImage) {
+                await socket.sendMessage(sender, { react: { text: "⬇️", key: msg.key } });
+                const buffer = await downloadMedia(msg.message);
+                if (buffer) {
+                    session.photos.push(buffer);
+                    session.step += 1;
+                    await socket.sendMessage(sender, { text: `📸 *Photo Request (2/2)*\n\nදැන් ID එකේ හෝ ඔයාගේ Design එකක ෆොටෝ එකක් එවන්න.` }, { quoted: msg });
+                }
+            } else {
+                await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' }, { quoted: msg });
+            }
+        }
+        // STEP 3: Photo 2 (Final)
+        else if (session.step === totalTextQ + 1) {
+            if (isImage) {
+                await socket.sendMessage(sender, { react: { text: "🔄", key: msg.key } });
+                const buffer = await downloadMedia(msg.message);
+                if (buffer) {
+                    session.photos.push(buffer);
+                    
+                    // Generate Report
+                    const slTime = moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss');
+                    const ans = session.answers;
+
+                    const reportText = `
+┏━━━━━━━━━━━━━━━━━━━┓
+┃ 🛡️ *NEW APPLICATION*
+┗━━━━━━━━━━━━━━━━━━━┛
+🚀 *Team:* Dark Tech Zone
+👤 *Applicant:* +${sender.split('@')[0]}
+🕒 *Time:* ${slTime}
+
+📝 *Answers:*
+1️⃣ Name: ${ans[0]}
+2️⃣ Age: ${ans[1]}
+3️⃣ City: ${ans[2]}
+4️⃣ Skills: ${ans[3]}
+5️⃣ Reason: ${ans[4]}
+
+📸 *Photos Attached Below* 👇`;
+
+                    let botLogo = config.RCD_IMAGE_PATH;
+                    // Send to Admin
+                    await socket.sendMessage(adminNumber, { image: { url: botLogo }, caption: reportText, mentions: [sender] });
+                    await socket.sendMessage(adminNumber, { image: session.photos[0], caption: `👤 *User Photo*` });
+                    await socket.sendMessage(adminNumber, { image: session.photos[1], caption: `🆔 *Proof/Work*` });
+
+                    // Confirm to User
+                    await socket.sendMessage(sender, { text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර Admin වෙත යොමු කෙරුණා.\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` }, { quoted: msg });
+                    
+                    global.interviewSessions.delete(sender);
+                }
+            } else {
+                await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' }, { quoted: msg });
+            }
+        }
+        return; // STOP EXECUTION HERE FOR INTERVIEW USERS
     }
-    // ==========================================================
+    // =================================================================
+    // END INTERVIEW LOGIC
+    // =================================================================
 
     const developers = `${config.OWNER_NUMBER}`;
     const botNumber = socket.user.id.split(':')[0];
     const isbot = botNumber.includes(senderNumber);
     const isOwner = isbot ? isbot : developers.includes(senderNumber);
     const isGroup = from.endsWith("@g.us");
-
 
     const body = (type === 'conversation') ? msg.message.conversation
       : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
@@ -520,7 +422,7 @@ function setupCommandHandlers(socket, number) {
     const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : null;
     const args = body.trim().split(/ +/).slice(1);
 
-    // helper: download quoted media into buffer
+    // Helper: download quoted media into buffer (used for commands)
     async function downloadQuotedMedia(quoted) {
       if (!quoted) return null;
       const qTypes = ['imageMessage','videoMessage','audioMessage','documentMessage','stickerMessage'];
@@ -547,196 +449,30 @@ function setupCommandHandlers(socket, number) {
       const sanitized = (number || '').replace(/[^0-9]/g, '');
       const userConfig = await loadUserConfigFromMongo(sanitized) || {};
       
-// ========== ADD WORK TYPE RESTRICTIONS HERE ==========
-// =============================================
-// 🛡️ DARK TECH ZONE - PRO INTERVIEW LOGIC v2
-// =============================================
-
-// 1. අසන්නට අවශ්‍ය ප්‍රශ්න (Text Questions)
-const dtQuestions = [
-    "👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)",
-    "🎂 වයස කීයද? (Age)",
-    "🏡️ පදිංචිය කොහෙද? (Address/City)",
-    "💻 ඔයාට පුළුවන් Tech/Coding දේවල් මොනවද?",
-    "🤔 ඇයි Dark Tech Zone එකට එන්න කැමති?"
-];
-
-// Admin Number (ඔයාගේ නම්බර් එක මෙතනට දාන්න)
-const adminNumber = config.OWNER_NUMBER + "@s.whatsapp.net";
-
-// Session Memory
-global.interviewSessions = global.interviewSessions || new Map();
-
-// Helper: Download Media
-const downloadMedia = async (message) => {
-    try {
-        const type = Object.keys(message)[0];
-        const stream = await socket.downloadContentFromMessage(message[type], type.replace('Message', ''));
-        let buffer = Buffer.from([]);
-        for await (const chunk of stream) {
-            buffer = Buffer.concat([buffer, chunk]);
-        }
-        return buffer;
-    } catch (e) {
-        return null;
-    }
-};
-
-// --- [LOGIC START] ---
-if (global.interviewSessions.has(sender)) {
-    const session = global.interviewSessions.get(sender);
-    const totalTextQ = dtQuestions.length;
-
-    // Check 1: User Cancel කරනවාද?
-    const textBody = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
-    if (textBody && (textBody.toLowerCase() === 'cancel' || textBody.toLowerCase() === 'stop')) {
-        global.interviewSessions.delete(sender);
-        await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' }, { quoted: msg });
-        return;
-    }
-
-    // Check 2: Reply එකක් දැම්මේ නැත්නම් ගණන් ගන්නේ නෑ (Group Safe)
-    const isReply = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage || msg.message?.imageMessage?.contextInfo?.quotedMessage;
-    
-    if (isReply) {
-        // --- STEP 1: Text Answers (0 to 4) ---
-        if (session.step < totalTextQ) {
-            if (!textBody) return; // Text එකක් නෙවෙයි නම් ගණන් ගන්නේ නෑ
-
-            session.answers.push(textBody);
-            session.step += 1;
-
-            if (session.step < totalTextQ) {
-                // ඊළඟ Text ප්‍රශ්නය
-                await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}\n\n> 💡 Reply to this message` }, { quoted: msg });
-            } else {
-                // Text ඉවරයි. දැන් Photo 1 ඉල්ලනවා
-                await socket.sendMessage(sender, { text: `📸 *Photo Request (1/2)*\n\nකරුණාකර ඔබගේ පැහැදිලි ඡායාරූපයක් එවන්න.\n(Please send a clear photo of yourself)\n\n> 💡 Reply to this message with a PHOTO.` }, { quoted: msg });
-            }
-        
-        // --- STEP 2: Photo 1 (Step 5) ---
-        } else if (session.step === totalTextQ) {
-            if (!msg.message?.imageMessage) {
-                return await socket.sendMessage(sender, { text: '⚠️ Please reply with a PHOTO (Image) only.' }, { quoted: msg });
-            }
-            // Download Photo 1
-            const buffer = await downloadMedia(msg.message);
-            if (buffer) {
-                session.photos.push(buffer);
-                session.step += 1;
-                // Ask for Photo 2
-                await socket.sendMessage(sender, { text: `📸 *Photo Request (2/2)*\n\nදැන් ඔබගේ ID එකේ හෝ ඔයා හදපු Design එකක ෆොටෝ එකක් එවන්න.\n(Send ID proof or Portfolio image)\n\n> 💡 Reply to this message with a PHOTO.` }, { quoted: msg });
-            }
-
-        // --- STEP 3: Photo 2 (Step 6) - FINAL ---
-        } else if (session.step === totalTextQ + 1) {
-            if (!msg.message?.imageMessage) {
-                return await socket.sendMessage(sender, { text: '⚠️ Please reply with a PHOTO (Image) only.' }, { quoted: msg });
-            }
-            // Download Photo 2
-            const buffer = await downloadMedia(msg.message);
-            if (buffer) {
-                session.photos.push(buffer);
-                
-                // ✅ FINAL REPORT GENERATION
-                await socket.sendMessage(sender, { react: { text: "🔄", key: msg.key } });
-
-                // Sri Lanka Time
-                const slTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Colombo" });
-                const applicantNumber = sender.split('@')[0];
-                const ans = session.answers;
-
-                const reportText = `
-┏━━━━━━━━━━━━━━━━━━━┓
-┃ 🛡️ *NEW MEMBER APPLICATION*
-┗━━━━━━━━━━━━━━━━━━━┛
-🚀 *Team:* Dark Tech Zone
-
-👤 *Applicant Info:*
-📞 *Number:* +${applicantNumber}
-🕒 *Time:* ${slTime}
-
-📝 *Interview Answers:*
-1️⃣ *Name:* ${ans[0]}
-2️⃣ *Age:* ${ans[1]}
-3️⃣ *City:* ${ans[2]}
-4️⃣ *Skills:* ${ans[3]}
-5️⃣ *Reason:* ${ans[4]}
-
-📸 *Photos Attached Below* 👇
-`;
-
-                // 1. Send Text Report to Admin
-                let botLogo = config.RCD_IMAGE_PATH;
-                await socket.sendMessage(adminNumber, { 
-                    image: { url: botLogo },
-                    caption: reportText,
-                    mentions: [sender]
-                });
-
-                // 2. Send Photo 1 to Admin
-                await socket.sendMessage(adminNumber, { image: session.photos[0], caption: `👤 *Applicant Photo* (+${applicantNumber})` });
-
-                // 3. Send Photo 2 to Admin
-                await socket.sendMessage(adminNumber, { image: session.photos[1], caption: `🆔 *Proof/Portfolio* (+${applicantNumber})` });
-
-                // 4. Send Confirmation to User
-                await socket.sendMessage(sender, { 
-                    text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර සහ ඡායාරූප Admin වෙත යොමු කෙරුණා. \n(Sent at: ${slTime})\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` 
-                }, { quoted: msg });
-
-                // Clear Session
-                global.interviewSessions.delete(sender);
-            }
-        }
-        return; // Stop other commands
-    }
-}
-// --- [LOGIC END] ---
-// Apply work type restrictions for non-owner users
-if (!isOwner) {
-  // Get work type from user config or fallback to global config
-  const workType = userConfig.WORK_TYPE || 'public'; // Default to public if not set
-  
-  // If work type is "private", only owner can use commands
-  if (workType === "private") {
-    console.log(`Command blocked: WORK_TYPE is private for ${sanitized}`);
-    return;
-  }
-  
-  // If work type is "inbox", block commands in groups
-  if (isGroup && workType === "inbox") {
-    console.log(`Command blocked: WORK_TYPE is inbox but message is from group for ${sanitized}`);
-    return;
-  }
-  
-  // If work type is "groups", block commands in private chats
-  if (!isGroup && workType === "groups") {
-    console.log(`Command blocked: WORK_TYPE is groups but message is from private chat for ${sanitized}`);
-    return;
-  }
-  
-  // If work type is "public", allow all (no restrictions needed)
-}
-// ========== END WORK TYPE RESTRICTIONS ==========
-
+      // Apply work type restrictions for non-owner users
+      if (!isOwner) {
+        const workType = userConfig.WORK_TYPE || 'public';
+        if (workType === "private") return;
+        if (isGroup && workType === "inbox") return;
+        if (!isGroup && workType === "groups") return;
+      }
 
       switch (command) {
         // --- existing commands (deletemenumber, unfollow, newslist, admin commands etc.) ---
         // ... (keep existing other case handlers unchanged) ...
- case 'apply':
+case 'apply':
 case 'join':
 case 'interview': {
     try {
         if (global.interviewSessions.has(sender)) {
-            return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview! Reply to the last message.' }, { quoted: msg });
+            return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview! Just reply with your answer.' }, { quoted: msg });
         }
 
         const sanitized = (number || '').replace(/[^0-9]/g, '');
         const cfg = await loadUserConfigFromMongo(sanitized) || {};
         const logo = cfg.logo || config.RCD_IMAGE_PATH;
 
-        // Session එක හදනවා (Photos array එකත් එක්ක)
+        // Session Init
         global.interviewSessions.set(sender, { step: 0, answers: [], photos: [] });
 
         const welcome = `
@@ -744,10 +480,10 @@ case 'interview': {
 
 👋 ආයුබෝවන්!
 අපේ Team එකට එකතු වෙන්න කැමතිද?
-අපි අසන ප්‍රශ්න වලට පිළිතුරු සපයන්න.
 
-⚠️ *උත්තර දෙන විට බොට්ගේ මැසේජ් එකට Reply කරන්න.*
-(ප්‍රශ්න 5ක් සහ ෆොටෝ 2ක් අවශ්‍ය වේ)
+⚠️ *උපදෙස්:*
+1. ප්‍රශ්න වලට කෙලින්ම Reply කරන්න (Prefix එපා).
+2. පසුව ෆොටෝ 2ක් ඉල්ලනු ඇත.
 
 👇 *පළමු ප්‍රශ්නය:*
 ${dtQuestions[0]}
