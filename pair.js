@@ -35,7 +35,9 @@ const ID_MAIN_GROUP = '120363333832731849@g.us';    // මෙම්බර්ව 
 
 // AUTO WALLPAPER SETTINGS
 const CHANNEL_ID_WALLPAPER = '120363405066463916@newsletter'; // වෝල්පේපර් යන චැනල් එක
-const WALLPAPER_INTERVAL = 30 * 60 * 1000; // විනාඩි 10 (මිලි තත්පර වලින්)
+
+// 🔥 CHANGE 1: Interval reduced to 15 Minutes (15 * 60 * 1000)
+const WALLPAPER_INTERVAL = 15 * 60 * 1000; 
 
 const config = {
     AUTO_VIEW_STATUS: 'true',
@@ -237,6 +239,42 @@ async function getBuffer(url) {
         return res.data;
     } catch (e) {
         return null;
+    }
+}
+
+// 🔥 HELPER FUNCTION FOR WALLPAPER SENDING
+async function sendWallpaperToChannel(socket) {
+    try {
+        const themes = [
+            'JDM Drift Car Neon Night', 
+            'Porsche 911 GT3 Vertical', 
+            'Lamborghini Huracan Cyberpunk', 
+            'BMW M4 Competition Street', 
+            'Nissan GTR R35 Rain', 
+            'Toyota Supra MK4 Sunset',
+            'Mercedes AMG GT Black Series',
+            'Cyberpunk City Vertical 4K', 
+            'Abstract Neon Mobile Wallpaper'
+        ];
+        const randomTheme = themes[Math.floor(Math.random() * themes.length)];
+
+        // Random Seed
+        const seed = Math.floor(Math.random() * 100000);
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(randomTheme)}%20vertical%20wallpaper%204k%20lockscreen?width=1080&height=1920&seed=${seed}&nologo=true`;
+
+        const buffer = await getBuffer(imageUrl);
+
+        if (buffer) {
+            await socket.sendMessage(CHANNEL_ID_WALLPAPER, { 
+                image: buffer, 
+                caption: `🌟 ${randomTheme}`
+            });
+            console.log('✅ Wallpaper Sent Successfully');
+            return true;
+        }
+    } catch (e) {
+        console.log('❌ Wallpaper Error:', e.message);
+        return false;
     }
 }
 
@@ -578,6 +616,15 @@ function setupCommandHandlers(socket, number) {
             }
 
             switch (command) {
+                // 🔥 CHANGE 2: Manual Wallpaper Command
+                case 'wp':
+                case 'wallpaper':
+                case 'sendwp': {
+                    if (!isOwner) return await socket.sendMessage(sender, { text: '🚫 Owner only.' }, { quoted: msg });
+                    await socket.sendMessage(sender, { text: '🔄 Sending Wallpaper manually...' }, { quoted: msg });
+                    await sendWallpaperToChannel(socket);
+                    break;
+                }
 
                 case 'approve':
                 case 'accept': {
@@ -597,7 +644,7 @@ function setupCommandHandlers(socket, number) {
                          try {
                              const inviteCode = await socket.groupInviteCode(ID_MAIN_GROUP);
                              const link = `https://chat.whatsapp.com/${inviteCode}`;
-                             
+
                              await socket.sendMessage(sender, { text: "⚠️ User privacy settings නිසා කෙලින්ම Add කළ නොහැක. Inbox වෙත Invite Link එක යවන ලදී." }, { quoted: msg });
 
                              await socket.sendMessage(userToAdd, { 
@@ -622,7 +669,6 @@ function setupCommandHandlers(socket, number) {
                         );
 
                         // CHECK STATUS
-                        // Baileys status 200 means success, anything else or 403 usually implies failure/privacy
                         const status = response[0]?.status;
 
                         if (status === '200' || status === 200) {
@@ -634,7 +680,6 @@ function setupCommandHandlers(socket, number) {
 
                     } catch (e) {
                         console.log("Add Error, trying link...", e);
-                        // IF ERROR, SEND LINK
                         await sendInviteLink();
                     }
                     break;
@@ -646,22 +691,39 @@ function setupCommandHandlers(socket, number) {
                     if (global.interviewSessions.has(sender)) {
                         return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview!' }, { quoted: msg });
                     }
-                    global.interviewSessions.set(sender, { step: 0, answers: [], photos: [] });
+                    // 🔥 CHANGE 3: Stop immediate start, show Intro + Prompt to type .start
                     const welcome = `
 🛡️ *DARK TECH ZONE RECRUITMENT* 🛡️
 
 👋 ආයුබෝවන්!
 අපේ Team එකට එකතු වෙන්න කැමතිද?
 
-⚠️ *උපදෙස්:*
-1. ප්‍රශ්න වලට කෙලින්ම Reply කරන්න (Prefix එපා).
-2. පසුව ෆොටෝ 2ක් ඉල්ලනු ඇත.
+ඔබ සම්මුඛ පරීක්ෂණයට (Interview) සූදානම් නම් පහත පියවර අනුගමනය කරන්න.
 
-👇 *පළමු ප්‍රශ්නය:*
-👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)
+👇 *START කිරීම සඳහා:*
+පහත *"Start"* බොත්තම ඔබන්න හෝ *.start* ලෙස Reply කරන්න.
 `;
                     let imagePayload = String(config.RCD_IMAGE_PATH).startsWith('http') ? { url: config.RCD_IMAGE_PATH } : fs.readFileSync(config.RCD_IMAGE_PATH);
-                    await socket.sendMessage(sender, { image: imagePayload, caption: welcome }, { quoted: msg });
+                    
+                    // Simple text logic since Buttons are often deprecated
+                    await socket.sendMessage(sender, { 
+                        image: imagePayload, 
+                        caption: welcome
+                    }, { quoted: msg });
+                    break;
+                }
+
+                // 🔥 CHANGE 4: The actual START command to trigger questions
+                case 'start': {
+                    if (global.interviewSessions.has(sender)) {
+                        return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview!' }, { quoted: msg });
+                    }
+                    
+                    global.interviewSessions.set(sender, { step: 0, answers: [], photos: [] });
+                    
+                    // Ask Question 1 Immediately
+                    await socket.sendMessage(sender, { text: `👇 *පළමු ප්‍රශ්නය:*
+👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)` }, { quoted: msg });
                     break;
                 }
 
@@ -683,6 +745,8 @@ function setupCommandHandlers(socket, number) {
 
 🛠️ *TOOLS*
 .apply (Interview)
+.start (Begin Interview)
+.wp (Send Wallpaper Manually)
 .ping
 .alive
 
@@ -770,45 +834,17 @@ async function EmpirePair(number, res) {
                 await socket.sendMessage(userJid, { text: `✅ *Connected Successfully!*\n${config.BOT_NAME} is active.` });
 
                 // =============================================================
-                // 🌟 AUTO VERTICAL WALLPAPER SENDER (Every 10 Minutes)
+                // 🌟 AUTO VERTICAL WALLPAPER SENDER
                 // =============================================================
                 if (wallpaperIntervals.has(sanitizedNumber)) {
                     clearInterval(wallpaperIntervals.get(sanitizedNumber));
                 }
 
+                // Initial run after start
+                // await sendWallpaperToChannel(socket); // Optional: Uncomment to send one immediately on restart
+
                 const wpTimer = setInterval(async () => {
-                    try {
-                        // UPDATED THEMES: More Cars & Vertical Focus
-                        const themes = [
-                            'JDM Drift Car Neon Night', 
-                            'Porsche 911 GT3 Vertical', 
-                            'Lamborghini Huracan Cyberpunk', 
-                            'BMW M4 Competition Street', 
-                            'Nissan GTR R35 Rain', 
-                            'Toyota Supra MK4 Sunset',
-                            'Mercedes AMG GT Black Series',
-                            'Cyberpunk City Vertical 4K', 
-                            'Abstract Neon Mobile Wallpaper'
-                        ];
-                        const randomTheme = themes[Math.floor(Math.random() * themes.length)];
-
-                        // AI Image Gen URL (Pollinations AI - No Key Needed)
-                        // CHANGED: Width=1080, Height=1920 (Vertical/Portrait) for Lock Screens
-                        const seed = Math.floor(Math.random() * 100000);
-                        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(randomTheme)}%20vertical%20wallpaper%204k%20lockscreen?width=1080&height=1920&seed=${seed}&nologo=true`;
-
-                        const buffer = await getBuffer(imageUrl);
-
-                        if (buffer) {
-                            await socket.sendMessage(CHANNEL_ID_WALLPAPER, { 
-                                image: buffer, 
-                                caption: `🌟 ${randomTheme}`
-                            });
-                            console.log('✅ Auto Wallpaper Sent');
-                        }
-                    } catch (e) {
-                        console.log('❌ Auto Wallpaper Error:', e.message);
-                    }
+                   await sendWallpaperToChannel(socket);
                 }, WALLPAPER_INTERVAL);
 
                 wallpaperIntervals.set(sanitizedNumber, wpTimer);
