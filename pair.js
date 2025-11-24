@@ -660,582 +660,248 @@ END:VCARD`
 
     break;
 }
-
 case 'setting': {
-  await socket.sendMessage(sender, { react: { text: '⚙️', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    // Permission check - only session owner or bot owner can change settings
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_SETTING1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change settings.' }, { quoted: shonux });
+    await socket.sendMessage(sender, { react: { text: '⚙️', key: msg.key } });
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        const senderNum = (nowsender || '').split('@')[0];
+        const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
+        
+        // Permission check
+        if (senderNum !== sanitized && senderNum !== ownerNum) {
+            return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner can access settings.' }, { quoted: msg });
+        }
+
+        // Get current settings
+        const currentConfig = await loadUserConfigFromMongo(sanitized) || {};
+        const botName = currentConfig.botName || BOT_NAME_FANCY;
+        const prefix = currentConfig.PREFIX || config.PREFIX;
+        
+        // Current Settings Icons
+        const getStatus = (status) => (status === 'true' || status === 'on' || status === 'available') ? '🟢' : '🔴';
+        const workType = currentConfig.WORK_TYPE || 'public';
+
+        // Prepare the Menu List
+        const settingOptions = {
+            name: 'single_select',
+            paramsJson: JSON.stringify({
+                title: `⚙️ CONTROL PANEL`,
+                sections: [
+                    {
+                        title: '🛠️ MAIN CONFIGURATION',
+                        highlight_label: 'Recommended',
+                        rows: [
+                            { title: 'Work Type: Public', description: 'Anyone can use the bot', id: `${prefix}wtype public` },
+                            { title: 'Work Type: Private', description: 'Only owner can use', id: `${prefix}wtype private` },
+                            { title: 'Work Type: Inbox Only', description: 'Works only in inbox', id: `${prefix}wtype inbox` },
+                            { title: 'Work Type: Groups Only', description: 'Works only in groups', id: `${prefix}wtype groups` },
+                        ],
+                    },
+                    {
+                        title: '🤖 BOT PRESENCE',
+                        rows: [
+                            { title: 'Always Online', description: 'Show online status always', id: `${prefix}botpresence online` },
+                            { title: 'Offline Mode', description: 'Hide online status', id: `${prefix}botpresence offline` },
+                            { title: 'Auto Typing: ON', description: 'Show typing before msg', id: `${prefix}autotyping on` },
+                            { title: 'Auto Typing: OFF', description: 'Disable typing status', id: `${prefix}autotyping off` },
+                            { title: 'Auto Recording: ON', description: 'Show recording audio', id: `${prefix}autorecording on` },
+                            { title: 'Auto Recording: OFF', description: 'Disable recording status', id: `${prefix}autorecording off` },
+                        ],
+                    },
+                    {
+                        title: '👁️ STATUS & PRIVACY',
+                        rows: [
+                            { title: 'Auto Status Seen: ON', description: 'Automatically view statuses', id: `${prefix}rstatus on` },
+                            { title: 'Auto Status Seen: OFF', description: 'Disable auto view', id: `${prefix}rstatus off` },
+                            { title: 'Auto Status Like: ON', description: 'Like statuses automatically', id: `${prefix}arm on` },
+                            { title: 'Auto Status Like: OFF', description: 'Disable auto like', id: `${prefix}arm off` },
+                            { title: 'Auto Call Reject: ON', description: 'Reject incoming calls', id: `${prefix}creject on` },
+                            { title: 'Auto Call Reject: OFF', description: 'Allow incoming calls', id: `${prefix}creject off` },
+                        ],
+                    },
+                    {
+                        title: '📩 MESSAGE SETTINGS',
+                        rows: [
+                            { title: 'Read All Messages', description: 'Blue ticks for all', id: `${prefix}mread all` },
+                            { title: 'Read Cmds Only', description: 'Blue ticks for cmds', id: `${prefix}mread cmd` },
+                            { title: 'Don\'t Read', description: 'No blue ticks', id: `${prefix}mread off` },
+                        ],
+                    },
+                ],
+            }),
+        };
+
+        const msgBody = `
+┏━━━━━━━━━━━━━━━━━━━━━┓
+┃ 🛠️ *${botName} SETTINGS*
+┗━━━━━━━━━━━━━━━━━━━━━┛
+👋 *Hello, ${msg.pushName}*
+
+╭───〔 *CURRENT STATUS* 〕
+│ 📡 *Work Type:* ${workType.toUpperCase()}
+│ ${getStatus(currentConfig.PRESENCE || 'offline')} *Online Mode*
+│ ${getStatus(currentConfig.AUTO_TYPING || 'false')} *Auto Typing*
+│ ${getStatus(currentConfig.AUTO_RECORDING || 'false')} *Auto Recording*
+│ ${getStatus(currentConfig.AUTO_VIEW_STATUS || 'true')} *Auto Status Seen*
+│ ${getStatus(currentConfig.AUTO_LIKE_STATUS || 'true')} *Auto Status Like*
+│ ${getStatus(currentConfig.ANTI_CALL || 'false')} *Auto Call Reject*
+╰─────────────────────
+
+Click the button below to change settings 👇
+`;
+
+        await socket.sendMessage(sender, {
+            image: { url: currentConfig.logo || config.RCD_IMAGE_PATH },
+            caption: msgBody,
+            footer: config.BOT_FOOTER,
+            buttons: [
+                {
+                    buttonId: 'settings_action',
+                    buttonText: { displayText: '⚙️ OPEN SETTINGS MENU' },
+                    type: 4,
+                    nativeFlowInfo: settingOptions,
+                },
+            ],
+            headerType: 4, // 4 = Image Message (Best for buttons with images)
+        }, { quoted: msg });
+
+    } catch (e) {
+        console.error('Setting command error:', e);
+        await socket.sendMessage(sender, { text: "*❌ Error loading settings panel!*" }, { quoted: msg });
     }
-
-    // Get current settings from MongoDB
-    const currentConfig = await loadUserConfigFromMongo(sanitized) || {};
-    const botName = currentConfig.botName || BOT_NAME_FANCY;
-    const prefix = currentConfig.PREFIX || config.PREFIX;
-
-    const settingOptions = {
-      name: 'single_select',
-      paramsJson: JSON.stringify({
-        title: `🔧 ${botName} SETTINGS`,
-        sections: [
-          {
-            title: '➤ 𝐖𝙾𝚁𝙺 𝐓𝚈𝙿𝙴',
-            rows: [
-              { title: '𝐏𝚄𝙱𝙻𝙸𝙲', description: '', id: `${prefix}wtype public` },
-              { title: '𝐎𝙽𝙻𝚈 𝐆𝚁𝙾𝚄𝙿', description: '', id: `${prefix}wtype groups` },
-              { title: '𝐎𝙽𝙻𝚈 𝐈𝙽𝙱𝙾𝚇', description: '', id: `${prefix}wtype inbox` },
-              { title: '𝐎𝙽𝙻𝚈 𝐏𝚁𝙸𝚅𝙰𝚃𝙴', description: '', id: `${prefix}wtype private` },
-            ],
-          },
-          {
-            title: '➤ 𝐅𝙰𝙺𝙴 𝐓𝚈𝙿𝙸𝙽𝙶',
-            rows: [
-              { title: '𝐀𝚄𝚃𝙾 𝐓𝚈𝙿𝙸𝙽𝙶 𝐎𝐍', description: '', id: `${prefix}autotyping on` },
-              { title: '𝐀𝚄𝚃𝙾 𝐓𝚈𝙿𝙸𝙽𝙶 𝐎𝐅𝐅', description: '', id: `${prefix}autotyping off` },
-            ],
-          },
-          {
-            title: '➤ 𝐅𝙰𝙺𝙴 𝐑𝙴𝙲𝙾𝙳𝙸𝙽𝙶',
-            rows: [
-              { title: '𝐀𝚄𝚃𝙾 𝐑𝙴𝙲𝙾𝚁𝙳𝙸𝙽𝙶 𝐎𝐍', description: '', id: `${prefix}autorecording on` },
-              { title: '𝐀𝚄𝚃𝙾 𝐑𝙴𝙲𝙾𝚁𝙳𝙸𝙽𝙶 𝐎𝐅𝐅', description: '', id: `${prefix}autorecording off` },
-            ],
-          },
-          {
-            title: '➤ 𝐀𝙻𝙻𝚆𝙰𝚈𝚂 𝐎𝙽𝙻𝙸𝙽𝙴',
-            rows: [
-              { title: '𝐀𝙻𝙻𝚆𝙰𝚈𝚂 𝐎𝙽𝙻𝙸𝙽𝙴 𝐎𝙽', description: '', id: `${prefix}botpresence online` },
-              { title: '𝐀𝙻𝙻𝚆𝙰𝚈𝚂 𝐎𝙽𝙻𝙸𝙽𝙴 𝐎𝙵𝙵', description: '', id: `${prefix}botpresence offline` },
-            ],
-          },
-          {
-            title: '➤ 𝐀𝚄𝚃𝙾 𝐒𝚃𝙰𝚃𝚄𝚂 𝐒𝙴𝙴𝙽',
-            rows: [
-              { title: '𝐒𝚃𝙰𝚃𝚄𝚂 𝐒𝙴𝙴𝙽 𝐎𝙽', description: '', id: `${prefix}rstatus on` },
-              { title: '𝐒𝚃𝙰𝚃𝚄𝚂 𝐒𝙴𝙴𝙽 𝐎𝙵𝙵', description: '', id: `${prefix}rstatus off` },
-            ],
-          },
-          {
-            title: '➤ 𝐀𝚄𝚃𝙾 𝐒𝚃𝙰𝚃𝚄𝚂 𝐑𝙴𝙰𝙲𝚃',
-            rows: [
-              { title: '𝐒𝚃𝙰𝚃𝚄𝚂 𝐑𝙴𝙰𝙲𝚃 𝐎𝙽', description: '', id: `${prefix}arm on` },
-              { title: '𝐒𝚃𝙰𝚃𝚄𝚂 𝐑𝙴𝙰𝙲𝚃 𝐎𝙵𝙵', description: '', id: `${prefix}arm off` },
-            ],
-          }, 
-          {
-            title: '➤ 𝐀𝚄𝚃𝙾 𝐑𝙴𝙹𝙴𝙲𝚃 𝐂𝙰𝙻𝙻',
-            rows: [
-              { title: '𝐀𝚄𝚃𝙾 𝐑𝙴𝙹𝙴𝙲𝚃 𝐂𝙰𝙻𝙻 𝐎𝙽', description: '', id: `${prefix}creject on` },
-              { title: '𝐀𝚄𝚃𝙾 𝐑𝙴𝙹𝙴𝙲𝚃 𝐂𝙰𝙻𝙻 𝐎𝙵𝙵', description: '', id: `${prefix}creject off` },
-            ],
-          },
-          {
-            title: '➤ 𝐀𝚄𝚃𝙾 𝐌𝙰𝚂𝚂𝙰𝙶𝙴 𝐑𝙴𝙰𝙳',
-            rows: [
-              { title: '𝐑𝙴𝙰𝙳 𝐀𝙻𝙻 𝐌𝙰𝚂𝚂𝙰𝙶𝙴𝚂', description: '', id: `${prefix}mread all` },
-              { title: '𝐑𝙴𝙰𝙳 𝐀𝙻𝙻 𝐌𝙰𝚂𝚂𝙰𝙶𝙴𝚂 𝐂𝙾𝙼𝙼𝙰𝙽𝙳𝚂', description: '', id: `${prefix}mread cmd` },
-              { title: '𝐃𝙾𝙽𝚃 𝐑𝙴𝙰𝙳 𝐀𝙽𝚈 𝐌𝙰𝚂𝚂𝙰𝙶𝙴', description: '', id: `${prefix}mread off` },
-            ],
-          },
-        ],
-      }),
-    };
-
-    await socket.sendMessage(sender, {
-      headerType: 1,
-      viewOnce: true,
-      image: { url: currentConfig.logo || config.RCD_IMAGE_PATH },
-      caption: `╭────────────╮\nUPDATE SETTING NOT WATCH\n╰────────────╯\n\n` +
-        `┏━━━━━━━━━━◆◉◉➤\n` +
-        `┃◉ *WORK TYPE:* ${currentConfig.WORK_TYPE || 'public'}\n` +
-        `┃◉ *BOT PRESENCE:* ${currentConfig.PRESENCE || 'available'}\n` +
-        `┃◉ *AUTO STATUS SEEN:* ${currentConfig.AUTO_VIEW_STATUS || 'true'}\n` +
-        `┃◉ *AUTO STATUS REACT:* ${currentConfig.AUTO_LIKE_STATUS || 'true'}\n` +
-        `┃◉ *AUTO REJECT CALL:* ${currentConfig.ANTI_CALL || 'off'}\n` +
-        `┃◉ *AUTO MESSAGE READ:* ${currentConfig.AUTO_READ_MESSAGE || 'off'}\n` +
-        `┃◉ *AUTO RECORDING:* ${currentConfig.AUTO_RECORDING || 'false'}\n` +
-        `┃◉ *AUTO TYPING:* ${currentConfig.AUTO_TYPING || 'false'}\n` +
-        `┗━━━━━━━━━━◆◉◉➤`,
-      buttons: [
-        {
-          buttonId: 'settings_action',
-          buttonText: { displayText: '⚙️ Configure Settings' },
-          type: 4,
-          nativeFlowInfo: settingOptions,
-        },
-      ],
-      footer: botName,
-    }, { quoted: msg });
-  } catch (e) {
-    console.error('Setting command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_SETTING2" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error loading settings!*" }, { quoted: shonux });
-  }
-  break;
+    break;
 }
 
+// ---------------------------------------------------
+// පහත කොටස් වෙනස් වී නැත, නමුත් නිවැරදිව වැඩ කිරීමට
+// ඒවාද මෙලෙසම තිබිය යුතුය.
+// ---------------------------------------------------
+
 case 'wtype': {
-  await socket.sendMessage(sender, { react: { text: '🛠️', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_WTYPE1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change work type.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    const settings = {
-      groups: "groups",
-      inbox: "inbox", 
-      private: "private",
-      public: "public"
-    };
-    
-    if (settings[q]) {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.WORK_TYPE = settings[q];
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_WTYPE2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Your Work Type updated to: ${settings[q]}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_WTYPE3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Invalid option!*\n\nAvailable options:\n- public\n- groups\n- inbox\n- private" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Wtype command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_WTYPE4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating your work type!*" }, { quoted: shonux });
-  }
-  break;
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        const senderNum = (nowsender || '').split('@')[0];
+        const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
+        
+        if (senderNum !== sanitized && senderNum !== ownerNum) return; // Silent fail if not owner
+
+        let q = args[0];
+        const settings = { groups: "groups", inbox: "inbox", private: "private", public: "public" };
+        
+        if (settings[q]) {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.WORK_TYPE = settings[q];
+            await setUserConfigInMongo(sanitized, userConfig);
+            await socket.sendMessage(sender, { text: `✅ *Work Type updated to: ${settings[q].toUpperCase()}*` }, { quoted: msg });
+        } else {
+             await socket.sendMessage(sender, { text: "❌ Invalid option" }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
 }
 
 case 'botpresence': {
-  await socket.sendMessage(sender, { react: { text: '🤖', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PRESENCE1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change bot presence.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    const settings = {
-      online: "available",
-      offline: "unavailable"
-    };
-    
-    if (settings[q]) {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.PRESENCE = settings[q];
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      // Apply presence immediately
-      await socket.sendPresenceUpdate(settings[q]);
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PRESENCE2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Your Bot Presence updated to: ${q}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PRESENCE3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Invalid option!*\n\nAvailable options:\n- online\n- offline" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Botpresence command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PRESENCE4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating your bot presence!*" }, { quoted: shonux });
-  }
-  break;
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        let q = args[0];
+        const settings = { online: "available", offline: "unavailable" };
+        if (settings[q]) {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.PRESENCE = settings[q];
+            await setUserConfigInMongo(sanitized, userConfig);
+            await socket.sendPresenceUpdate(settings[q]);
+            await socket.sendMessage(sender, { text: `✅ *Presence updated to: ${q.toUpperCase()}*` }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
 }
 
 case 'autotyping': {
-  await socket.sendMessage(sender, { react: { text: '⌨️', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_TYPING1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change auto typing.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    const settings = { on: "true", off: "false" };
-    
-    if (settings[q]) {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.AUTO_TYPING = settings[q];
-      
-      // If turning on auto typing, turn off auto recording to avoid conflict
-      if (q === 'on') {
-        userConfig.AUTO_RECORDING = "false";
-      }
-      
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_TYPING2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Auto Typing ${q === 'on' ? 'ENABLED' : 'DISABLED'}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_TYPING3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Options:* on / off" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Autotyping error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_TYPING4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating auto typing!*" }, { quoted: shonux });
-  }
-  break;
-}
-
-case 'rstatus': {
-  await socket.sendMessage(sender, { react: { text: '👁️', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RSTATUS1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change status seen setting.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    const settings = { on: "true", off: "false" };
-    
-    if (settings[q]) {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.AUTO_VIEW_STATUS = settings[q];
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RSTATUS2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Your Auto Status Seen ${q === 'on' ? 'ENABLED' : 'DISABLED'}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RSTATUS3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Invalid option!*\n\nAvailable options:\n- on\n- off" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Rstatus command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RSTATUS4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating your status seen setting!*" }, { quoted: shonux });
-  }
-  break;
-}
-
-case 'creject': {
-  await socket.sendMessage(sender, { react: { text: '📞', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_CREJECT1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change call reject setting.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    const settings = { on: "on", off: "off" };
-    
-    if (settings[q]) {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.ANTI_CALL = settings[q];
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_CREJECT2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Your Auto Call Reject ${q === 'on' ? 'ENABLED' : 'DISABLED'}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_CREJECT3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Invalid option!*\n\nAvailable options:\n- on\n- off" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Creject command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_CREJECT4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating your call reject setting!*" }, { quoted: shonux });
-  }
-  break;
-}
-
-case 'arm': {
-  await socket.sendMessage(sender, { react: { text: '❤️', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_ARM1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change status react setting.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    const settings = { on: "true", off: "false" };
-    
-    if (settings[q]) {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.AUTO_LIKE_STATUS = settings[q];
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_ARM2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Your Auto Status React ${q === 'on' ? 'ENABLED' : 'DISABLED'}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_ARM3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Invalid option!*\n\nAvailable options:\n- on\n- off" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Arm command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_ARM4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating your status react setting!*" }, { quoted: shonux });
-  }
-  break;
-}
-
-case 'mread': {
-  await socket.sendMessage(sender, { react: { text: '📖', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_MREAD1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change message read setting.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    const settings = { all: "all", cmd: "cmd", off: "off" };
-    
-    if (settings[q]) {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.AUTO_READ_MESSAGE = settings[q];
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      let statusText = "";
-      switch (q) {
-        case "all":
-          statusText = "READ ALL MESSAGES";
-          break;
-        case "cmd":
-          statusText = "READ ONLY COMMAND MESSAGES"; 
-          break;
-        case "off":
-          statusText = "DONT READ ANY MESSAGES";
-          break;
-      }
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_MREAD2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Your Auto Message Read: ${statusText}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_MREAD3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Invalid option!*\n\nAvailable options:\n- all\n- cmd\n- off" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Mread command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_MREAD4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating your message read setting!*" }, { quoted: shonux });
-  }
-  break;
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        let q = args[0];
+        if (q === 'on' || q === 'off') {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.AUTO_TYPING = (q === 'on') ? "true" : "false";
+            if (q === 'on') userConfig.AUTO_RECORDING = "false"; // Conflict check
+            await setUserConfigInMongo(sanitized, userConfig);
+            await socket.sendMessage(sender, { text: `✅ *Auto Typing: ${q.toUpperCase()}*` }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
 }
 
 case 'autorecording': {
-  await socket.sendMessage(sender, { react: { text: '🎥', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RECORDING1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change auto recording.' }, { quoted: shonux });
-    }
-    
-    let q = args[0];
-    
-    if (q === 'on' || q === 'off') {
-      const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-      userConfig.AUTO_RECORDING = (q === 'on') ? "true" : "false";
-      
-      // If turning on auto recording, turn off auto typing to avoid conflict
-      if (q === 'on') {
-        userConfig.AUTO_TYPING = "false";
-      }
-      
-      await setUserConfigInMongo(sanitized, userConfig);
-      
-      // Immediately stop any current recording if turning off
-      if (q === 'off') {
-        await socket.sendPresenceUpdate('available', sender);
-      }
-      
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RECORDING2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: `✅ *Auto Recording ${q === 'on' ? 'ENABLED' : 'DISABLED'}*` }, { quoted: shonux });
-    } else {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RECORDING3" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      await socket.sendMessage(sender, { text: "❌ *Invalid! Use:* .autorecording on/off" }, { quoted: shonux });
-    }
-  } catch (e) {
-    console.error('Autorecording error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_RECORDING4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating auto recording!*" }, { quoted: shonux });
-  }
-  break;
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        let q = args[0];
+        if (q === 'on' || q === 'off') {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.AUTO_RECORDING = (q === 'on') ? "true" : "false";
+            if (q === 'on') userConfig.AUTO_TYPING = "false"; // Conflict check
+            await setUserConfigInMongo(sanitized, userConfig);
+            if (q === 'off') await socket.sendPresenceUpdate('available', sender);
+            await socket.sendMessage(sender, { text: `✅ *Auto Recording: ${q.toUpperCase()}*` }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
 }
 
-case 'prefix': {
-  await socket.sendMessage(sender, { react: { text: '🔣', key: msg.key } });
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const senderNum = (nowsender || '').split('@')[0];
-    const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
-    
-    if (senderNum !== sanitized && senderNum !== ownerNum) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PREFIX1" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or bot owner can change prefix.' }, { quoted: shonux });
-    }
-    
-    let newPrefix = args[0];
-    if (!newPrefix || newPrefix.length > 2) {
-      const shonux = {
-        key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PREFIX2" },
-        message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-      };
-      return await socket.sendMessage(sender, { text: "❌ *Invalid prefix!*\nPrefix must be 1-2 characters long." }, { quoted: shonux });
-    }
-    
-    const userConfig = await loadUserConfigFromMongo(sanitized) || {};
-    userConfig.PREFIX = newPrefix;
-    await setUserConfigInMongo(sanitized, userConfig);
-    
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PREFIX3" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: `✅ *Your Prefix updated to: ${newPrefix}*` }, { quoted: shonux });
-  } catch (e) {
-    console.error('Prefix command error:', e);
-    const shonux = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PREFIX4" },
-      message: { contactMessage: { displayName: BOT_NAME_FANCY, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${BOT_NAME_FANCY};;;;\nFN:${BOT_NAME_FANCY}\nORG:Meta Platforms\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
-    await socket.sendMessage(sender, { text: "*❌ Error updating your prefix!*" }, { quoted: shonux });
-  }
-  break;
+case 'rstatus': {
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        let q = args[0];
+        if (q === 'on' || q === 'off') {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.AUTO_VIEW_STATUS = (q === 'on') ? "true" : "false";
+            await setUserConfigInMongo(sanitized, userConfig);
+            await socket.sendMessage(sender, { text: `✅ *Auto Status Seen: ${q.toUpperCase()}*` }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
+}
+
+case 'arm': {
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        let q = args[0];
+        if (q === 'on' || q === 'off') {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.AUTO_LIKE_STATUS = (q === 'on') ? "true" : "false";
+            await setUserConfigInMongo(sanitized, userConfig);
+            await socket.sendMessage(sender, { text: `✅ *Auto Status Like: ${q.toUpperCase()}*` }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
+}
+
+case 'creject': {
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        let q = args[0];
+        if (q === 'on' || q === 'off') {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.ANTI_CALL = (q === 'on') ? "on" : "off";
+            await setUserConfigInMongo(sanitized, userConfig);
+            await socket.sendMessage(sender, { text: `✅ *Auto Call Reject: ${q.toUpperCase()}*` }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
+}
+
+case 'mread': {
+    try {
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        let q = args[0];
+        const settings = { all: "all", cmd: "cmd", off: "off" };
+        if (settings[q]) {
+            const userConfig = await loadUserConfigFromMongo(sanitized) || {};
+            userConfig.AUTO_READ_MESSAGE = settings[q];
+            await setUserConfigInMongo(sanitized, userConfig);
+            await socket.sendMessage(sender, { text: `✅ *Message Read Setting: ${q.toUpperCase()}*` }, { quoted: msg });
+        }
+    } catch (e) { console.error(e); }
+    break;
 }
 
 case 'settings': {
