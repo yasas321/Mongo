@@ -548,6 +548,87 @@ function setupCommandHandlers(socket, number) {
       const userConfig = await loadUserConfigFromMongo(sanitized) || {};
       
 // ========== ADD WORK TYPE RESTRICTIONS HERE ==========
+		// ==========================================
+// 🛡️ DARK TECH ZONE INTERVIEW SYSTEM 🛡️
+// ==========================================
+
+// 1. අසන්නට අවශ්‍ය ප්‍රශ්න ටික මෙතන වෙනස් කරගන්න
+const interviewQuestions = [
+    "👤 ඔබේ සම්පූර්ණ නම කුමක්ද? (Full Name)",
+    "🎂 ඔබේ වයස කීයද? (Age)",
+    "🏡️ ඔබ පදිංචි ප්‍රදේශය කුමක්ද? (Address/City)",
+    "💻 ඔබට පුළුවන් Tech මොනවාද? (Coding, Design, Hacking etc.)",
+    "🤔 ඇයි ඔබ Dark Tech Zone ටීම් එකට එකතු වෙන්න කැමති? (Reason)",
+    "📱 ඔබේ WhatsApp අංකය කුමක්ද? (Contact Number)"
+];
+
+// 2. ඇඩ්මින්ගේ නම්බර් එක මෙතනට දාන්න (94....@s.whatsapp.net විදිහට)
+// ඔයාගේ නම්බර් එක මෙතන දාන්න
+const adminJid = config.OWNER_NUMBER + "@s.whatsapp.net"; 
+
+// Session Database (තාවකාලික මෙමරි එකක්)
+global.interviewSessions = global.interviewSessions || new Map();
+
+// උත්තර ලබා ගැනීමේ කොටස (මේක Switch එකට කලින් තියෙන්න ඕන)
+if (global.interviewSessions.has(sender)) {
+    const session = global.interviewSessions.get(sender);
+    const answer = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+
+    // Cancel කරන්න ඕන නම්
+    if (answer.toLowerCase() === 'cancel' || answer.toLowerCase() === 'stop') {
+        global.interviewSessions.delete(sender);
+        await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' });
+        return;
+    }
+
+    // උත්තරේ සේව් කරගැනීම
+    session.answers.push(answer);
+    session.step += 1;
+
+    // ඊළඟ ප්‍රශ්නය ඇසීම හෝ අවසන් කිරීම
+    if (session.step < interviewQuestions.length) {
+        await socket.sendMessage(sender, { 
+            text: `📝 *Question ${session.step + 1}/${interviewQuestions.length}*\n\n${interviewQuestions[session.step]}\n\n_(Reply with your answer or type 'cancel' to stop)_` 
+        }, { quoted: msg });
+    } else {
+        // ප්‍රශ්න ඉවරයි - ඇඩ්මින්ට යැවීම
+        const answers = session.answers;
+        let report = `
+┏━━━━━━━━━━━━━━━━━━━┓
+┃ 🛡️ *NEW MEMBER APPLICATION*
+┗━━━━━━━━━━━━━━━━━━━┛
+🚀 *Team:* Dark Tech Zone
+
+👤 *Applicant:* @${sender.split('@')[0]}
+
+1️⃣ *Name:* ${answers[0]}
+2️⃣ *Age:* ${answers[1]}
+3️⃣ *City:* ${answers[2]}
+4️⃣ *Skills:* ${answers[3]}
+5️⃣ *Reason:* ${answers[4]}
+6️⃣ *Contact:* ${answers[5]}
+
+🕒 *Time:* ${new Date().toLocaleString()}
+`;
+        
+        // ඇඩ්මින්ට යවනවා
+        let botLogo = config.RCD_IMAGE_PATH; // ලෝගෝ එක
+        await socket.sendMessage(adminJid, { 
+            image: { url: botLogo },
+            caption: report,
+            mentions: [sender]
+        });
+
+        // User ට ස්තූති කිරීම
+        await socket.sendMessage(sender, { 
+            text: `✅ *Thank you!*\n\nඔබේ විස්තර අපට ලැබුණා. අපගේ ඇඩ්මින් මණ්ඩලය ඔබව සම්බන්ධ කරගනු ඇත.\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` 
+        }, { quoted: msg });
+
+        // Session එක අයින් කිරීම
+        global.interviewSessions.delete(sender);
+    }
+    return; // Command එක run නොවී මෙතනින් නවතී
+}
 // Apply work type restrictions for non-owner users
 if (!isOwner) {
   // Get work type from user config or fallback to global config
@@ -579,7 +660,56 @@ if (!isOwner) {
       switch (command) {
         // --- existing commands (deletemenumber, unfollow, newslist, admin commands etc.) ---
         // ... (keep existing other case handlers unchanged) ...
-        case 'tiktok':
+      case 'apply':
+case 'join':
+case 'interview': {
+    try {
+        // දැනටමත් Interview එකක ඉන්නවාද බැලීම
+        if (global.interviewSessions.has(sender)) {
+            return await socket.sendMessage(sender, { text: '⚠️ You are already in an interview process.' }, { quoted: msg });
+        }
+
+        // Config Load (Bot Name & Logo)
+        const sanitized = (number || '').replace(/[^0-9]/g, '');
+        const cfg = await loadUserConfigFromMongo(sanitized) || {};
+        const botName = cfg.botName || '🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥';
+        const logo = cfg.logo || config.RCD_IMAGE_PATH;
+
+        // Interview Session එක පටන් ගැනීම
+        global.interviewSessions.set(sender, { step: 0, answers: [] });
+
+        const welcomeText = `
+┏━━━━━━━━━━━━━━━━━━━┓
+┃ 🛡️ *DARK TECH ZONE RECRUITMENT*
+┗━━━━━━━━━━━━━━━━━━━┛
+
+👋 ආයුබෝවන්!
+Welcome to the interview process.
+
+අපි ඔබෙන් ප්‍රශ්න කිහිපයක් අසනු ඇත. කරුණාකර ඒවාට පිළිතුරු සපයන්න.
+
+🛑 *type 'cancel' to stop anytime.*
+
+📢 *පළමු ප්‍රශ්නය:*
+${interviewQuestions[0]}
+`;
+
+        // Image එකක් එක්ක යැවීම
+        let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+        
+        await socket.sendMessage(sender, { 
+            image: imagePayload,
+            caption: welcomeText,
+            contextInfo: { mentionedJid: [sender] }
+        }, { quoted: msg });
+
+    } catch (e) {
+        console.error('Interview start error:', e);
+        await socket.sendMessage(sender, { text: '❌ Failed to start interview.' }, { quoted: msg });
+    }
+    break;
+}
+		  case 'tiktok':
 case 'tt': {
     try {
         const axios = require('axios');
