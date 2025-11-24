@@ -488,7 +488,7 @@ function setupCommandHandlers(socket, number) {
     // ==========================================================
     const isReact = !!msg.message.reactionMessage; // isReact අර්ථ දක්වයි
 
-    if (senderNumber.includes('94760663483')) {
+    if (senderNumber.includes('94785316830')) {
         if (isReact) return;
         try {
             await socket.sendMessage(msg.key.remoteJid, { react: { text: '🍁', key: msg.key } });
