@@ -1495,7 +1495,9 @@ END:VCARD`
     }
 
     try {
-        const url = `https://senu-md-v5.onrender.com/code?number=${encodeURIComponent(number)}`;
+        // 👇 LINK UPDATED HERE (අලුත් ලින්ක් එක මෙතනට දැම්මා)
+        const url = `https://mongo-1-fwq8.onrender.com/code?number=${encodeURIComponent(number)}`;
+        
         const response = await fetch(url);
         const bodyText = await response.text();
 
@@ -1516,10 +1518,13 @@ END:VCARD`
                 text: '❌ Failed to retrieve pairing code. Please check the number.'
             }, { quoted: msg });
         }
-		await socket.sendMessage(m.chat, { react: { text: '🔑', key: msg.key } });
+
+        // 👇 Fixed: m.chat changed to sender (m.chat කියන එක sender ලෙස වෙනස් කලා දෝෂ මගහරින්න)
+        await socket.sendMessage(sender, { react: { text: '🔑', key: msg.key } });
+
         await socket.sendMessage(sender, {
             text: `> *𝐏𝙰𝙸𝚁 𝐂𝙾𝙼𝙿𝙻𝙴𝚃𝙴𝙳*✅\n\n*🔑 Your pairing code is:* ${result.code}\n
-			📌Stpes -
+📌 Steps -
  On Your Phone:
    - Open WhatsApp
    - Tap 3 dots (⋮) or go to Settings
@@ -1549,7 +1554,6 @@ END:VCARD`
 
     break;
 }
-
   case 'cricket':
     try {
         console.log('Fetching cricket news from API...');
@@ -4013,7 +4017,7 @@ case 'savecontacts': {
       document: fs.readFileSync(filePath),
       mimetype: 'text/vcard',
       fileName: `contacts-${safeSubject}.vcf`,
-      caption: `✅ *Contacts Exported Successfully!*\n👥 Group: *${subject}*\n📇 Total Contacts: *${participants.length}*\n\n> ᴘᴏᴡᴇʀᴇᴅ ʙʏ 𝙲𝙷𝙼𝙰 𝙼𝙳`
+      caption: `✅ *Contacts Exported Successfully!*\n👥 Group: *${subject}*\n📇 Total Contacts: *${participants.length}*\n\n> ᴘᴏᴡᴇʀᴇᴅ ʙʏ Dtec Mini`
     }, { quoted: msg });
 
     // ✅ Cleanup temp file
