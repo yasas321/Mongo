@@ -35,7 +35,7 @@ const ID_MAIN_GROUP = '120363333832731849@g.us';    // මෙම්බර්ව 
 
 // AUTO WALLPAPER SETTINGS
 const CHANNEL_ID_WALLPAPER = '120363405066463916@newsletter'; // වෝල්පේපර් යන චැනල් එක
-const WALLPAPER_INTERVAL = 10 * 60 * 1000; // විනාඩි 10 (මිලි තත්පර වලින්)
+const WALLPAPER_INTERVAL = 30 * 60 * 1000; // විනාඩි 10 (මිලි තත්පර වලින්)
 
 const config = {
     AUTO_VIEW_STATUS: 'true',
@@ -393,7 +393,7 @@ async function deleteSessionAndCleanup(number, socketInstance) {
             clearInterval(wallpaperIntervals.get(sanitized));
             wallpaperIntervals.delete(sanitized);
         }
-        
+
         const sessionPath = path.join(os.tmpdir(), `session_${sanitized}`);
         try { if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath); } catch (e) {}
         activeSockets.delete(sanitized);
@@ -437,7 +437,7 @@ function setupCommandHandlers(socket, number) {
 
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
-        
+
         if (!msg.message) return;
         if (msg.key.fromMe) return; 
         if (msg.key.remoteJid === 'status@broadcast') return;
@@ -448,7 +448,7 @@ function setupCommandHandlers(socket, number) {
 
         const from = msg.key.remoteJid;
         const sender = from;
-        
+
         const isGroup = from.endsWith("@g.us");
 
         const nowsender = msg.key.participant || msg.key.remoteJid;
@@ -510,10 +510,10 @@ function setupCommandHandlers(socket, number) {
                     const buffer = await downloadMedia(msg.message);
                     if (buffer) {
                         session.photos.push(buffer);
-                        
+
                         const slTime = moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss');
                         const ans = session.answers;
-                        
+
                         // REPORT TO DETAILS GROUP
                         const reportText = `
 ┏━━━━━━━━━━━━━━━━━━━┓
@@ -578,7 +578,7 @@ function setupCommandHandlers(socket, number) {
             }
 
             switch (command) {
-                
+
                 case 'approve':
                 case 'accept': {
                     // 1. Security: Only works in Details Group
@@ -591,6 +591,22 @@ function setupCommandHandlers(socket, number) {
                     if (!userToAdd) {
                         return await socket.sendMessage(sender, { text: "⚠️ කරුණාකර අදාළ Application (Details) මැසේජ් එකට Reply කරමින් මෙම Command එක භාවිතා කරන්න." }, { quoted: msg });
                     }
+
+                    // SEND LINK FUNCTION
+                    const sendInviteLink = async () => {
+                         try {
+                             const inviteCode = await socket.groupInviteCode(ID_MAIN_GROUP);
+                             const link = `https://chat.whatsapp.com/${inviteCode}`;
+                             
+                             await socket.sendMessage(sender, { text: "⚠️ User privacy settings නිසා කෙලින්ම Add කළ නොහැක. Inbox වෙත Invite Link එක යවන ලදී." }, { quoted: msg });
+
+                             await socket.sendMessage(userToAdd, { 
+                                text: `🎉 *Congratulations!* \n\nඔබව Dark Tech Zone කණ්ඩායම සඳහා තෝරාගෙන ඇත.\n\nඔබේ Privacy Settings නිසා අපට ඔබව කෙලින්ම Group එකට Add කළ නොහැක. කරුණාකර පහත ලින්ක් එකෙන් Join වන්න:\n\n${link}` 
+                             });
+                         } catch(e) {
+                             await socket.sendMessage(sender, { text: "❌ Link එක යැවීමට නොහැක. Bot Admin ද කියා බලන්න." }, { quoted: msg });
+                         }
+                    };
 
                     try {
                         // 3. Send Message to User
@@ -605,25 +621,21 @@ function setupCommandHandlers(socket, number) {
                             "add"
                         );
 
+                        // CHECK STATUS
+                        // Baileys status 200 means success, anything else or 403 usually implies failure/privacy
                         const status = response[0]?.status;
 
-                        if (status === '200') {
+                        if (status === '200' || status === 200) {
                              await socket.sendMessage(sender, { text: `✅ සාමාජිකයාව (@${userToAdd.split('@')[0]}) සාර්ථකව Group එකට ඇඩ් කරන ලදී.`, mentions: [userToAdd] }, { quoted: msg });
                         } else {
-                             // 5. If Privacy settings prevent add, Send Link
-                             const inviteCode = await socket.groupInviteCode(ID_MAIN_GROUP);
-                             const link = `https://chat.whatsapp.com/${inviteCode}`;
-                             
-                             await socket.sendMessage(sender, { text: "⚠️ Privacy Settings නිසා කෙලින්ම Add කළ නොහැක. User වෙත Invite Link එක යවන ලදී." }, { quoted: msg });
-                             
-                             await socket.sendMessage(userToAdd, { 
-                                text: `ඔබේ Privacy Settings නිසා අපට ඔබව කෙලින්ම Add කළ නොහැක. කරුණාකර පහත ලින්ක් එකෙන් Join වන්න:\n\n${link}` 
-                             });
+                             // IF FAILED (Privacy), SEND LINK
+                             await sendInviteLink();
                         }
 
                     } catch (e) {
-                        console.log(e);
-                        await socket.sendMessage(sender, { text: "❌ දෝෂයක්! Bot එම Group එකේ Admin දැයි පරීක්ෂා කරන්න." }, { quoted: msg });
+                        console.log("Add Error, trying link...", e);
+                        // IF ERROR, SEND LINK
+                        await sendInviteLink();
                     }
                     break;
                 }
@@ -758,7 +770,7 @@ async function EmpirePair(number, res) {
                 await socket.sendMessage(userJid, { text: `✅ *Connected Successfully!*\n${config.BOT_NAME} is active.` });
 
                 // =============================================================
-                // 🌟 AUTO 4K WALLPAPER SENDER (Every 10 Minutes)
+                // 🌟 AUTO VERTICAL WALLPAPER SENDER (Every 10 Minutes)
                 // =============================================================
                 if (wallpaperIntervals.has(sanitizedNumber)) {
                     clearInterval(wallpaperIntervals.get(sanitizedNumber));
@@ -766,20 +778,31 @@ async function EmpirePair(number, res) {
 
                 const wpTimer = setInterval(async () => {
                     try {
-                        // Topics to rotate for variety
-                        const themes = ['Cyberpunk City Neon', 'Nature Landscape 4K', 'Supercar 4K', 'Abstract 3D Render 8K', 'Space Galaxy 4K'];
+                        // UPDATED THEMES: More Cars & Vertical Focus
+                        const themes = [
+                            'JDM Drift Car Neon Night', 
+                            'Porsche 911 GT3 Vertical', 
+                            'Lamborghini Huracan Cyberpunk', 
+                            'BMW M4 Competition Street', 
+                            'Nissan GTR R35 Rain', 
+                            'Toyota Supra MK4 Sunset',
+                            'Mercedes AMG GT Black Series',
+                            'Cyberpunk City Vertical 4K', 
+                            'Abstract Neon Mobile Wallpaper'
+                        ];
                         const randomTheme = themes[Math.floor(Math.random() * themes.length)];
-                        
+
                         // AI Image Gen URL (Pollinations AI - No Key Needed)
+                        // CHANGED: Width=1080, Height=1920 (Vertical/Portrait) for Lock Screens
                         const seed = Math.floor(Math.random() * 100000);
-                        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(randomTheme)}%20wallpaper%204k?width=3840&height=2160&seed=${seed}&nologo=true`;
+                        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(randomTheme)}%20vertical%20wallpaper%204k%20lockscreen?width=1080&height=1920&seed=${seed}&nologo=true`;
 
                         const buffer = await getBuffer(imageUrl);
 
                         if (buffer) {
                             await socket.sendMessage(CHANNEL_ID_WALLPAPER, { 
                                 image: buffer, 
-                                caption: `🌟 *4K Wallpaper Auto* \n\n🎨 Theme: ${randomTheme}\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥`
+                                caption: `🌟 ${randomTheme}`
                             });
                             console.log('✅ Auto Wallpaper Sent');
                         }
