@@ -1110,65 +1110,55 @@ Select an option below. 👇
   }
   break;
 }
-case 'calc': {
-  try {
-    // 1. ගණිත ගැටලුව ලබා ගැනීම (Extracting the equation)
-    // q variable එක switch එකට කලින් define කරලා තිබිය යුතුයි (පරණ code එකේ වගේ)
-    const expression = q.replace(/^[.\/!]calc\s*/i, '').trim();
-
-    // කිසිවක් type කර නැත්නම් usage එක පෙන්වීම
-    if (!expression) {
-        return await socket.sendMessage(sender, { 
-            text: '*📌 Usage:* .calc 10+20\n(Use +, -, *, /, ( ) for calculations)' 
-        }, { quoted: msg });
-    }
-
-    // 2. Config Load කිරීම (Ping එකේ තිබු විදියටම)
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const cfg = await loadUserConfigFromMongo(sanitized) || {};
-    const botName = cfg.botName || 'Bot Name'; // config එකේ නැත්නම් default නමක්
-    const logo = cfg.logo || config.RCD_IMAGE_PATH;
-
-    // 3. ආරක්ෂිතව ගණනය කිරීම (Calculation Logic)
-    // ඉලක්කම් සහ ගණිත සංකේත හැර වෙනත් දේවල් අයින් කිරීම (Security purpose)
-    const cleanExpr = expression.replace(/[^0-9+\-*/().\s]/g, '');
-    
-    let result;
+case 'meme': {
     try {
-        // ගණනය කිරීම
-        result = new Function('return ' + cleanExpr)();
-    } catch (err) {
-        return await socket.sendMessage(sender, { text: '❌ Invalid Math Equation!' }, { quoted: msg });
-    }
+        // Fetch එක define කරගැනීම (node-fetch fix එක)
+        const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+        
+        const cfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {};
+        const botName = cfg.botName || 'D-TEC BOT';
+        const logo = cfg.logo || config.RCD_IMAGE_PATH;
 
-    // 4. Meta Quote (Ping එකේ තිබු විදියටම)
-    const metaQuote = {
-      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_CALC" },
-      message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName};;;;\nFN:${botName}\nORG:Calculator Tool\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
-    };
+        // ලංකාවේ මේම්ස් තියෙන තැනකින් ගන්න API එක (PieFM / srilanka)
+        // මේකෙන් රැන්ඩම් එකක් තෝරගන්නවා
+        const subreddits = ['PieFM', 'srilanka'];
+        const randomSub = subreddits[Math.floor(Math.random() * subreddits.length)];
+        
+        const response = await fetch(`https://meme-api.com/gimme/${randomSub}`);
+        const data = await response.json();
 
-    // 5. ප්‍රතිඵලය පෙන්වීම
-    const text = `
-🧮 *${botName} CALCULATOR*
+        // මේම් එකක් හම්බුනේ නැත්නම්
+        if (!data.url) {
+            return await socket.sendMessage(sender, { text: '❌ මේ වෙලාවේ මේම්ස් හොයාගන්න බැ උනා.' }, { quoted: msg });
+        }
 
-📝 *Equation:* ${cleanExpr}
-💡 *Result:* *${result}*
+        const metaQuote = {
+            key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_MEME" },
+            message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName}\nFN:${botName}\nEND:VCARD` } }
+        };
+
+        const text = `
+🤣 *${botName} MEME HUB*
+
+📝 *මාතෘකාව:* ${data.title}
+👍 *Likes:* ${data.ups}
+👀 *Author:* ${data.author}
+
+> 🇱🇰 Powered by Sri Lankan Reddit
 `;
 
-    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+        await socket.sendMessage(sender, {
+            image: { url: data.url }, // API එකෙන් එන කෙලින්ම ලින්ක් එක
+            caption: text,
+            footer: `🔥 ${botName} MEMES 🔥`,
+            headerType: 4
+        }, { quoted: metaQuote });
 
-    await socket.sendMessage(sender, {
-      image: imagePayload,
-      caption: text,
-      footer: `🔥 ${botName} CALC 🔥`,
-      headerType: 4
-    }, { quoted: metaQuote });
-
-  } catch(e) {
-    console.error('calc error', e);
-    await socket.sendMessage(sender, { text: '❌ Failed to calculate.' }, { quoted: msg });
-  }
-  break;
+    } catch (e) {
+        console.error('meme error', e);
+        await socket.sendMessage(sender, { text: '❌ මේම් එක ලෝඩ් කරගන්න බැරි උනා.' }, { quoted: msg });
+    }
+    break;
 }
 case 'checkjid': {
   try {
