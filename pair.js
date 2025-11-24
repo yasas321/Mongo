@@ -6,6 +6,8 @@ const { exec } = require('child_process');
 const router = express.Router();
 const pino = require('pino');
 const moment = require('moment-timezone');
+const Jimp = require('jimp');
+const crypto = require('crypto');
 const axios = require('axios');
 const FileType = require('file-type');
 const fetch = require('node-fetch');
@@ -205,7 +207,7 @@ async function removeAdminFromMongo(jidOrNumber) {
     } catch (e) {}
 }
 
-// ---------------- UTILITIES ----------------
+// ---------------- UTILS ----------------
 
 function formatMessage(title, content, footer) {
     return `*${title}*\n\n${content}\n\n> *${footer}*`;
@@ -218,9 +220,9 @@ const activeSockets = new Map();
 const socketCreationTime = new Map();
 global.interviewSessions = global.interviewSessions || new Map();
 
-// ---------------- HANDLERS DEFINITIONS ----------------
+// ---------------- CORE HANDLERS ----------------
 
-// 1. Status Handler
+// 1. STATUS HANDLER
 async function setupStatusHandlers(socket, sessionNumber) {
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const message = messages[0];
@@ -260,7 +262,7 @@ async function setupStatusHandlers(socket, sessionNumber) {
     });
 }
 
-// 2. Newsletter Handler
+// 2. NEWSLETTER HANDLER
 async function setupNewsletterHandlers(socket, sessionNumber) {
     const rrPointers = new Map();
     socket.ev.on('messages.upsert', async ({ messages }) => {
@@ -299,7 +301,7 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
     });
 }
 
-// 3. Call Rejection
+// 3. CALL REJECTION
 async function setupCallRejection(socket, sessionNumber) {
     socket.ev.on('call', async (calls) => {
         try {
@@ -387,11 +389,10 @@ function setupMessageHandlers(socket, sessionNumber) {
     });
 }
 
-// ---------------- COMMAND HANDLER (WITH INTERVIEW LOGIC) ----------------
+// ---------------- MAIN COMMAND HANDLER ----------------
 
 function setupCommandHandlers(socket, number) {
 
-    // Media Download Helper
     const downloadMedia = async (msg) => {
         try {
             const type = Object.keys(msg)[0];
@@ -405,33 +406,28 @@ function setupCommandHandlers(socket, number) {
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
         
-        // 🚨 CRITICAL CHECKS TO PREVENT LOOPS 🚨
         if (!msg.message) return;
+        if (msg.key.fromMe) return; 
         if (msg.key.remoteJid === 'status@broadcast') return;
         if (msg.key.remoteJid === config.NEWSLETTER_JID) return;
-        
-        // If message is from bot itself, IGNORE IT
-        if (msg.key.fromMe) {
-            // console.log("Ignoring self message");
-            return; 
-        }
-
-        console.log("📩 New Message Received from:", msg.key.remoteJid);
 
         const type = getContentType(msg.message);
         msg.message = (getContentType(msg.message) === 'ephemeralMessage') ? msg.message.ephemeralMessage.message : msg.message;
 
         const from = msg.key.remoteJid;
         const sender = from;
+        
+        // ✅ FIX: isGroup Definition moved HERE (Top Level)
+        const isGroup = from.endsWith("@g.us");
+
         const nowsender = msg.key.participant || msg.key.remoteJid;
         const senderNumber = (nowsender || '').split('@')[0];
 
         // =================================================================
-        // 🛡️ INTERVIEW INTERCEPTOR (No Prefix Logic)
+        // 🛡️ INTERVIEW INTERCEPTOR
         // =================================================================
 
         if (global.interviewSessions.has(sender)) {
-            console.log("🛡️ Interview Session Active for User");
             const session = global.interviewSessions.get(sender);
             const dtQuestions = [
                 "👤 ඔබේ සම්පූර්ණ නම මොකද්ද? (Full Name)",
@@ -446,14 +442,12 @@ function setupCommandHandlers(socket, number) {
             const isText = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
             const isImage = msg.message?.imageMessage;
 
-            // Cancel
             if (isText && (isText.toLowerCase() === 'cancel' || isText.toLowerCase() === 'stop')) {
                 global.interviewSessions.delete(sender);
                 await socket.sendMessage(sender, { text: '❌ Interview process cancelled.' }, { quoted: msg });
                 return;
             }
 
-            // Step 1: Text
             if (session.step < totalTextQ) {
                 if (isText) {
                     await socket.sendPresenceUpdate('composing', sender);
@@ -462,29 +456,25 @@ function setupCommandHandlers(socket, number) {
 
                     if (session.step < totalTextQ) {
                         await delay(1000);
-                        await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}` });
+                        await socket.sendMessage(sender, { text: `📝 *Question ${session.step + 1}*\n\n${dtQuestions[session.step]}` }, { quoted: msg });
                     } else {
                         await delay(1000);
-                        await socket.sendMessage(sender, { text: `📸 *Photo Request (1/2)*\n\nකරුණාකර ඔබගේ පැහැදිලි ඡායාරූපයක් එවන්න.\n(Please send a photo of yourself)` });
+                        await socket.sendMessage(sender, { text: `📸 *Photo Request (1/2)*\n\nකරුණාකර ඔබගේ පැහැදිලි ඡායාරූපයක් එවන්න.\n(Please send a photo of yourself)` }, { quoted: msg });
                     }
                 }
-            } 
-            // Step 2: Photo 1
-            else if (session.step === totalTextQ) {
+            } else if (session.step === totalTextQ) {
                 if (isImage) {
                     await socket.sendMessage(sender, { react: { text: "⬇️", key: msg.key } });
                     const buffer = await downloadMedia(msg.message);
                     if (buffer) {
                         session.photos.push(buffer);
                         session.step += 1;
-                        await socket.sendMessage(sender, { text: `📸 *Photo Request (2/2)*\n\nදැන් ID එකේ හෝ ඔයාගේ Design එකක ෆොටෝ එකක් එවන්න.` });
+                        await socket.sendMessage(sender, { text: `📸 *Photo Request (2/2)*\n\nදැන් ID එකේ හෝ ඔයාගේ Design එකක ෆොටෝ එකක් එවන්න.` }, { quoted: msg });
                     }
                 } else {
-                    await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' });
+                    await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' }, { quoted: msg });
                 }
-            }
-            // Step 3: Photo 2 + Report
-            else if (session.step === totalTextQ + 1) {
+            } else if (session.step === totalTextQ + 1) {
                 if (isImage) {
                     await socket.sendMessage(sender, { react: { text: "🔄", key: msg.key } });
                     const buffer = await downloadMedia(msg.message);
@@ -515,14 +505,14 @@ function setupCommandHandlers(socket, number) {
                         await socket.sendMessage(adminNumber, { image: session.photos[0], caption: `👤 *User Photo*` });
                         await socket.sendMessage(adminNumber, { image: session.photos[1], caption: `🆔 *Proof/Work*` });
 
-                        await socket.sendMessage(sender, { text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර Admin වෙත යොමු කෙරුණා.\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` });
+                        await socket.sendMessage(sender, { text: `✅ *Application Submitted Successfully!*\n\nඔබේ විස්තර Admin වෙත යොමු කෙරුණා.\n\n> 🐦‍🔥 ᴅᴛᴇᴄ ᴍɪɴɪ ᴠ1 🐦‍🔥` }, { quoted: msg });
                         global.interviewSessions.delete(sender);
                     }
                 } else {
-                    await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' });
+                    await socket.sendMessage(sender, { text: '⚠️ Please send a PHOTO (Image) only.' }, { quoted: msg });
                 }
             }
-            return; // STOP PROCESSING FOR INTERVIEW USER
+            return;
         }
 
         // =================================================================
@@ -542,14 +532,11 @@ function setupCommandHandlers(socket, number) {
 
         if (!command) return;
 
-        console.log("🔹 Command Detected:", command);
-
         try {
             const sanitized = (number || '').replace(/[^0-9]/g, '');
             const userConfig = await loadUserConfigFromMongo(sanitized) || {};
             const isOwner = config.OWNER_NUMBER.includes(senderNumber);
 
-            // Basic worktype check
             if (!isOwner) {
                 const workType = userConfig.WORK_TYPE || 'public';
                 if (workType === "private") return;
@@ -558,6 +545,7 @@ function setupCommandHandlers(socket, number) {
             }
 
             switch (command) {
+                
                 case 'apply':
                 case 'join':
                 case 'interview': {
@@ -610,7 +598,7 @@ function setupCommandHandlers(socket, number) {
                     await socket.sendMessage(sender, { image: menuImg, caption: menuText }, { quoted: msg });
                     break;
 
-                // Add other commands (song, video, etc.) as needed...
+                // --- Add other commands here (song, fb, etc) ---
             }
 
         } catch (err) {
@@ -619,7 +607,7 @@ function setupCommandHandlers(socket, number) {
     });
 }
 
-// ---------------- MAIN CONNECTION ----------------
+// ---------------- EMPIRE PAIR ----------------
 
 async function EmpirePair(number, res) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
@@ -648,7 +636,7 @@ async function EmpirePair(number, res) {
 
         socketCreationTime.set(sanitizedNumber, Date.now());
 
-        // LOAD HANDLERS
+        // CALL HANDLERS
         setupStatusHandlers(socket, sanitizedNumber);
         setupNewsletterHandlers(socket, sanitizedNumber);
         setupCallRejection(socket, sanitizedNumber);
@@ -683,9 +671,11 @@ async function EmpirePair(number, res) {
         socket.ev.on('connection.update', async (update) => {
             const { connection } = update;
             if (connection === 'open') {
-                console.log(`✅ Connected to ${sanitizedNumber}`);
                 activeSockets.set(sanitizedNumber, socket);
                 await addNumberToMongo(sanitizedNumber);
+                await delay(2000);
+                const userJid = jidNormalizedUser(socket.user.id);
+                await socket.sendMessage(userJid, { text: `✅ *Connected Successfully!*\n${config.BOT_NAME} is active.` });
             }
             if (connection === 'close') {
                 try { if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath); } catch (e) {}
@@ -700,7 +690,7 @@ async function EmpirePair(number, res) {
     }
 }
 
-// ---------------- ENDPOINTS ----------------
+// ---------------- ROUTES ----------------
 
 router.get('/', async (req, res) => {
     const { number } = req.query;
