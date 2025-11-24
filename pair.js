@@ -3446,7 +3446,50 @@ END:VCARD` } }
     }
     break;
 }
+case 'short': {
+    try {
+        // Fetch එක define කරගැනීම (pair code එකේ වගේම)
+        const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+        
+        const q = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        const link = q.replace(/^[.\/!]short\s*/i, '').trim();
 
+        if (!link) return await socket.sendMessage(sender, { text: '❌ Please provide a URL.' }, { quoted: msg });
+
+        const cfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {};
+        const botName = cfg.botName || 'D-TEC BOT';
+        const logo = cfg.logo || config.RCD_IMAGE_PATH;
+
+        // API එකෙන් short link එක ගැනීම
+        const response = await fetch(`https://tinyurl.com/api-create.php?url=${link}`);
+        const shortUrl = await response.text();
+
+        const metaQuote = {
+            key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_LINK" },
+            message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName}\nFN:${botName}\nEND:VCARD` } }
+        };
+
+        const text = `
+🔗 *LINK SHORTENER*
+
+🌍 *Original:* ${link}
+✅ *Short:* ${shortUrl}
+`;
+        let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+
+        await socket.sendMessage(sender, {
+            image: imagePayload,
+            caption: text,
+            footer: `🔥 ${botName} TOOLS 🔥`,
+            headerType: 4
+        }, { quoted: metaQuote });
+
+    } catch (e) {
+        console.error(e);
+        await socket.sendMessage(sender, { text: '❌ Failed to shorten link.' }, { quoted: msg });
+    }
+    break;
+}
 
 case 'adanews': {
   try {
