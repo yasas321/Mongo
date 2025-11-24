@@ -1929,7 +1929,54 @@ case 'cfn': {
   }
   break;
 }
+case 'pass':
+case 'password': {
+    try {
+        // q variable එක define කරගැනීම (කලින් කෝඩ් වල වගේ)
+        const q = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        const lenStr = q.replace(/^[.\/!]pass(word)?\s*/i, '').trim();
+        
+        // දිග සකසා ගැනීම (default 10)
+        let length = parseInt(lenStr);
+        if (isNaN(length) || length > 50 || length < 4) length = 10;
 
+        const cfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {};
+        const botName = cfg.botName || 'D-TEC BOT';
+        const logo = cfg.logo || config.RCD_IMAGE_PATH;
+
+        // Password Logic
+        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
+        let password = "";
+        for (let i = 0; i < length; i++) {
+            password += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+
+        const metaQuote = {
+            key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_PASS" },
+            message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName}\nFN:${botName}\nEND:VCARD` } }
+        };
+
+        const text = `
+🔐 *PASSWORD GENERATOR*
+
+🔑 *Generated Pass:* \`${password}\`
+
+📏 *Length:* ${length} Characters
+`;
+        let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+
+        await socket.sendMessage(sender, {
+            image: imagePayload,
+            caption: text,
+            footer: `🔥 ${botName} SECURITY 🔥`,
+            headerType: 4
+        }, { quoted: metaQuote });
+
+    } catch (e) {
+        console.error(e);
+    }
+    break;
+}
 case 'chr': {
   const sanitized = (number || '').replace(/[^0-9]/g, '');
   const cfg = await loadUserConfigFromMongo(sanitized) || {};
