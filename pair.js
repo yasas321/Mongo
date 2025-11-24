@@ -1110,7 +1110,66 @@ Select an option below. 👇
   }
   break;
 }
+case 'calc': {
+  try {
+    // 1. ගණිත ගැටලුව ලබා ගැනීම (Extracting the equation)
+    // q variable එක switch එකට කලින් define කරලා තිබිය යුතුයි (පරණ code එකේ වගේ)
+    const expression = q.replace(/^[.\/!]calc\s*/i, '').trim();
 
+    // කිසිවක් type කර නැත්නම් usage එක පෙන්වීම
+    if (!expression) {
+        return await socket.sendMessage(sender, { 
+            text: '*📌 Usage:* .calc 10+20\n(Use +, -, *, /, ( ) for calculations)' 
+        }, { quoted: msg });
+    }
+
+    // 2. Config Load කිරීම (Ping එකේ තිබු විදියටම)
+    const sanitized = (number || '').replace(/[^0-9]/g, '');
+    const cfg = await loadUserConfigFromMongo(sanitized) || {};
+    const botName = cfg.botName || 'Bot Name'; // config එකේ නැත්නම් default නමක්
+    const logo = cfg.logo || config.RCD_IMAGE_PATH;
+
+    // 3. ආරක්ෂිතව ගණනය කිරීම (Calculation Logic)
+    // ඉලක්කම් සහ ගණිත සංකේත හැර වෙනත් දේවල් අයින් කිරීම (Security purpose)
+    const cleanExpr = expression.replace(/[^0-9+\-*/().\s]/g, '');
+    
+    let result;
+    try {
+        // ගණනය කිරීම
+        result = new Function('return ' + cleanExpr)();
+    } catch (err) {
+        return await socket.sendMessage(sender, { text: '❌ Invalid Math Equation!' }, { quoted: msg });
+    }
+
+    // 4. Meta Quote (Ping එකේ තිබු විදියටම)
+    const metaQuote = {
+      key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false, id: "META_AI_CALC" },
+      message: { contactMessage: { displayName: botName, vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${botName};;;;\nFN:${botName}\nORG:Calculator Tool\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD` } }
+    };
+
+    // 5. ප්‍රතිඵලය පෙන්වීම
+    const text = `
+🧮 *${botName} CALCULATOR*
+
+📝 *Equation:* ${cleanExpr}
+💡 *Result:* *${result}*
+`;
+
+    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+
+    await socket.sendMessage(sender, {
+      image: imagePayload,
+      caption: text,
+      footer: `🔥 ${botName} CALC 🔥`,
+      headerType: 4
+    }, { quoted: metaQuote });
+
+  } catch(e) {
+    console.error('calc error', e);
+    await socket.sendMessage(sender, { text: '❌ Failed to calculate.' }, { quoted: msg });
+  }
+  break;
+}
 case 'checkjid': {
   try {
     const sanitized = (number || '').replace(/[^0-9]/g, '');
